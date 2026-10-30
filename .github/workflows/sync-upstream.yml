@@ -1,0 +1,52 @@
+name: Sync Mika upstream
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-mika-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'icytea2-bit/Mika'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out personal fork
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Merge upstream and copy tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/wangzan101/Mika.git
+          git fetch upstream main --tags
+          upstream_sha=$(git rev-parse upstream/main)
+          git merge --no-edit upstream/main
+
+          # Keep scheduled sync active if upstream is quiet for a long time.
+          last_commit=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if (( now - last_commit > 2592000 )); then
+            git commit --allow-empty -m "chore: keep upstream sync active"
+          fi
+
+          # Never force-push: conflicts or changed tags fail visibly.
+          git push --atomic origin HEAD:main 'refs/tags/*:refs/tags/*'
+          {
+            echo "### Mika upstream sync"
+            echo "Upstream: wangzan101/Mika"
+            echo "Upstream main: $upstream_sha"
+            echo "Fork main: $(git rev-parse HEAD)"
+            echo "Main branch and tags synchronized successfully."
+          } >> "$GITHUB_STEP_SUMMARY"
