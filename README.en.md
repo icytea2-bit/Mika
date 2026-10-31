@@ -1,21 +1,22 @@
 <div align="center">
 
-<img src="docs/media/logo.png" alt="Mika" width="120" />
+<h1><img src="docs/media/logo.png" alt="" width="72" align="center" />&nbsp; Mika</h1>
 
-# Mika
+<a href="https://github.com/wangzan101/Mika/stargazers"><img src="https://img.shields.io/github/stars/wangzan101/Mika?style=flat&logo=github&label=Star&color=1f6feb" alt="stars" /></a>
+<a href="https://github.com/wangzan101/Mika/releases"><img src="https://img.shields.io/github/downloads/wangzan101/Mika/total?label=downloads&color=2ea043" alt="downloads" /></a>
+<a href="https://github.com/wangzan101/Mika/releases/latest"><img src="https://img.shields.io/github/v/release/wangzan101/Mika?include_prereleases&label=version" alt="version" /></a>
+<img src="https://img.shields.io/badge/Android-12%2B-3DDC84?logo=android&logoColor=white" alt="android" />
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
+<a href="https://x.com/wangzan101"><img src="https://img.shields.io/badge/X-%40wangzan101-000000?logo=x&logoColor=white" alt="X @wangzan101" /></a>
 
-[简体中文](README.md) | English
+[简体中文](README.md) · English
 
-**A personal AI assistant on your phone that operates apps, browses the web and gets things done for you.**
-
+**A personal AI assistant on your phone that operates apps, browses the web and gets things done for you.**<br/>
 It works on a hidden background screen, so you can keep using your phone.
 
-<a href="https://github.com/wangzan101/Mika/releases/latest"><img src="https://img.shields.io/github/v/release/wangzan101/Mika?include_prereleases&label=version" alt="version" /></a>
-<img src="https://img.shields.io/badge/Android-13%2B-3DDC84" alt="android" />
-<img src="https://img.shields.io/badge/sandbox-arm64-blue" alt="sandbox" />
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
+<h3><a href="https://github.com/wangzan101/Mika/releases/latest">⬇ Download Mika (Android APK)</a></h3>
 
-[Download APK](https://github.com/wangzan101/Mika/releases/latest) · [Install](#install) · [Quick start](#quick-start) · [What it can do](#what-it-can-do) · [FAQ](#faq) · [Contributing](#contributing)
+[Install](#install) · [Quick start](#quick-start) · [What it can do](#what-it-can-do) · [FAQ](#faq) · [Contributing](#contributing)
 
 </div>
 
@@ -39,9 +40,20 @@ Follow https://github.com/wangzan101/Mika/blob/main/docs/install-with-agent.en.m
 
 It checks the phone, downloads and installs Mika, turns on the permissions it needs, and stops to tell you whenever something needs a tap on the phone. You enter your API key in Mika yourself; it never goes through the agent.
 
+**After installing: let AI tools on your computer use Mika (MCP)**
+
+With the phone connected by USB, run on the computer:
+
+```
+adb shell sh /sdcard/Android/data/com.wangzan101.mika/files/connect-computer.sh
+adb forward tcp:8765 tcp:8765
+```
+
+The first command turns on Mika's computer access and prints the connection info (URL `http://127.0.0.1:8765/mcp` and a token). Add them to your AI tool's MCP config, and it can hand Mika tasks, check progress and get results. No tapping on the phone; USB only and token-protected, not reachable over Wi-Fi; confirmations such as payments can only be approved on the phone. With option 2, the AI agent can set this up for you. See the [computer access guide](docs/mcp.en.md).
+
 > **Language**
 >
-> - The app UI is in English and Chinese. It follows your system language (Chinese on a Chinese system, English otherwise), and you can switch in Settings › Language. Setting names below are given in English with the Chinese label in parentheses, e.g. 「设置手机操作」.
+> - The app UI is in Simplified Chinese, Traditional Chinese and English. It follows your system language (Simplified or Traditional Chinese to match a Chinese system, English otherwise), and you can switch in Settings › Language. Setting names below are given in English with the Chinese label in parentheses, e.g. 「设置手机操作」.
 > - The built-in knowledge about apps and websites is written in Chinese. That does not limit you: the model reads it fine, and you can talk to Mika in English.
 > - Many demos and built-in knowledge cover apps popular in China, but Mika is not tied to them: it can operate any app or website on your phone.
 
@@ -155,14 +167,18 @@ Apps and websites that already have usage knowledge (names as they appear in the
 - Each conversation gets a workspace that can run Python, Node and shell commands, process files you send, and save results to your phone's Download/Mika folder.
 - Offline by default; when needed, turn on "Allow scripts to access the network" (允许脚本联网) under "Files & compute" (文件与计算环境) in Settings. arm64 devices only.
 
+### AI tools on your computer can use it (MCP)
+
+With the phone connected to a computer, AI tools there can hand Mika tasks over MCP and get the results back. One command turns it on; USB only and token-protected. A LAN option is in Settings, off by default. See the [computer access guide](docs/mcp.en.md).
+
 ## Quick start
 
 ### Requirements
 
 | Item | Requirement |
 |---|---|
-| Install | Android 11 or later |
-| Run tasks | Android 13 or later (required by the background screen and the built-in phone helper) |
+| Install, chat, web and sandbox tasks | Android 11 or later (sandbox requires arm64) |
+| Phone app control | Android 12 or later; background work may affect main-screen focus on Android 12–13 |
 | Recommended | Android 14 or later: the background screen has its own focus, so it does not interfere with your typing on the main screen; running tasks from different conversations at the same time also needs it |
 | Linux sandbox | arm64 devices only; on other devices the app installs normally and the sandbox shows "not supported on this device" |
 | Model | An API key for an LLM that supports tool calling |
@@ -201,6 +217,8 @@ You can also skip the API key and sign in with ChatGPT (Plus or Pro, uses your p
 1. Add a provider: pick a preset, or pick Custom and enter the endpoint URL; enter your API key. For servers you run yourself, such as Ollama or LM Studio, the address is prefilled with the default port; change it to that machine’s address, and the key is optional.
 2. Tap "Test and save" (测试并保存). When you connect your first provider, a main model is picked automatically.
 3. The main model must support tool calling. Optional: a vision model (understands the UI and finds buttons in screenshots) and a light model (anything cheap and fast; handles small jobs like judging task outcomes and extracting memories).
+
+For ChatGPT sign-in and Responses models, adjust **Reasoning effort** below each role card. The default leaves the choice to the provider. "Use main model" inherits its effort; explicitly picking the same model lets each role use a different effort. Options come from the provider's model list when available; otherwise manual options are offered, subject to server support. Higher effort usually takes longer and uses more tokens.
 
 ### 5. Try it
 
@@ -248,8 +266,8 @@ The system sometimes stops accessibility services (e.g. after the process is cle
 **Some app screens cannot be read or captured?**
 Some screens (e.g. payment or password entry) block screenshots, so Mika cannot see them and will not try to read text on them. You need to take over on those screens and hand back to Mika when done.
 
-**Why Android 13?**
-Mika operates apps on a separate background screen, and the built-in phone helper and that screen need Android 13 or later. From Android 14 the background screen has its own focus and does not interfere with your typing on the main screen, so it is recommended. Web, sandbox and chat also work on Android 11 and 12.
+**Why recommend Android 14? What about older systems?**
+Mika operates apps on a separate background screen. Phone control is available from Android 12, but background work can affect main-screen focus on Android 12–13. From Android 14 the background screen has its own focus and does not interfere with your typing on the main screen, so it is recommended. Web, sandbox and chat also work on Android 11.
 
 **Can I use a model running on my own computer or LAN?**
 Yes. When adding a provider choose "Custom" (自定义); the base URL may start with `http://`, e.g. `http://192.168.1.10:11434/v1` (with the phone on the same Wi-Fi). Local and LAN addresses show no warning; an unencrypted address outside your LAN shows a short warning, since your API key and chats could be seen by others on the network. Use `https://` when you can.
@@ -312,8 +330,8 @@ The debug build is not precompiled and its UI is several times slower; use the p
 
 <a href="https://star-history.com/#wangzan101/Mika&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261031" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261031" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261031-1500" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261031-1500" width="600" />
   </picture>
 </a>
 

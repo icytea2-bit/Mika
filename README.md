@@ -1,23 +1,22 @@
 <div align="center">
 
-<img src="docs/media/logo.png" alt="Mika" width="120" />
+<h1><img src="docs/media/logo.png" alt="" width="72" align="center" />&nbsp; Mika</h1>
 
-# Mika
+<a href="https://github.com/wangzan101/Mika/stargazers"><img src="https://img.shields.io/github/stars/wangzan101/Mika?style=flat&logo=github&label=Star&color=1f6feb" alt="stars" /></a>
+<a href="https://github.com/wangzan101/Mika/releases"><img src="https://img.shields.io/github/downloads/wangzan101/Mika/total?label=%E4%B8%8B%E8%BD%BD&color=2ea043" alt="downloads" /></a>
+<a href="https://github.com/wangzan101/Mika/releases/latest"><img src="https://img.shields.io/github/v/release/wangzan101/Mika?include_prereleases&label=%E7%89%88%E6%9C%AC" alt="version" /></a>
+<img src="https://img.shields.io/badge/Android-12%2B-3DDC84?logo=android&logoColor=white" alt="android" />
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
+<a href="https://x.com/wangzan101"><img src="https://img.shields.io/badge/X-%40wangzan101-000000?logo=x&logoColor=white" alt="X @wangzan101" /></a>
 
-简体中文 | [English](README.en.md)
+简体中文 · [English](README.en.md)
 
-**你手机上的私人 AI 助理，替你操作 App、上网、把事办成。**
-
+**你手机上的私人 AI 助理，替你操作 App、上网、把事办成。**<br/>
 它在一块看不见的后台屏上干活，你照样刷你的手机。
 
-An on-device AI agent for Android that operates apps and the web to get things done for you — on a hidden background screen, so you can keep using your phone.
+<h3><a href="https://github.com/wangzan101/Mika/releases/latest">⬇ 下载 Mika（安卓 APK）</a></h3>
 
-<a href="https://github.com/wangzan101/Mika/releases/latest"><img src="https://img.shields.io/github/v/release/wangzan101/Mika?include_prereleases&label=version" alt="version" /></a>
-<img src="https://img.shields.io/badge/Android-13%2B-3DDC84" alt="android" />
-<img src="https://img.shields.io/badge/sandbox-arm64-blue" alt="sandbox" />
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
-
-[下载 APK](https://github.com/wangzan101/Mika/releases/latest) · [安装](#安装) · [快速开始](#快速开始) · [能做什么](#能做什么) · [常见问题](#常见问题) · [参与贡献](#参与贡献)
+[安装](#安装) · [快速开始](#快速开始) · [能做什么](#能做什么) · [常见问题](#常见问题) · [参与贡献](#参与贡献)
 
 </div>
 
@@ -41,11 +40,22 @@ An on-device AI agent for Android that operates apps and the web to get things d
 
 它会检查手机、下载安装、打开需要的权限，需要你在手机上点的时候会停下来告诉你。API Key 由你自己在 Mika 里填，不经过它。
 
+**装好之后：让电脑上的 AI 工具直接用 Mika（MCP）**
+
+手机用数据线连着电脑，在电脑上运行：
+
+```
+adb shell sh /sdcard/Android/data/com.wangzan101.mika/files/connect-computer.sh
+adb forward tcp:8765 tcp:8765
+```
+
+第一条会打开 Mika 的电脑连接，并打印连接信息（地址 `http://127.0.0.1:8765/mcp` 和令牌）；把它们填进电脑上 AI 工具的 MCP 配置，它就能给 Mika 派任务、查进度、拿结果。手机上不用点；只经数据线连接、要令牌，Wi-Fi 上连不到；付款这类确认只能在手机上点。用方式二安装时，AI 助手会顺手帮你接好。详见[电脑连接说明](docs/mcp.md)。
+
 > **English summary**
 >
 > Mika is an Android app that takes a one-sentence request and carries it out on your phone. It drives apps on a private background screen (so you can keep using your phone), browses the web in a built-in desktop-class browser, and runs scripts in a local Linux sandbox. You bring your own model API key (several providers are supported as presets, plus any OpenAI-compatible, Anthropic, Gemini or OpenAI Responses endpoint). There is no Mika server: your requests go only to the model provider you configure.
 >
-> Status: **public beta**, changing quickly (see [Releases](https://github.com/wangzan101/Mika/releases) for versions and changes). Install on Android 11+, tasks need Android 13+, Android 14+ recommended. The sandbox runs on arm64 devices only. The app UI is available in English and Chinese (follows your system language; switch in Settings › Language); see the [full English README](README.en.md). Licensed under Apache-2.0.
+> Status: **public beta**, changing quickly (see [Releases](https://github.com/wangzan101/Mika/releases) for versions and changes). Chat, web and sandbox tasks work on Android 11+; phone app control needs Android 12+, with Android 14+ recommended. The sandbox runs on arm64 devices only. The app UI is available in Simplified Chinese, Traditional Chinese and English (follows your system language; switch in Settings › Language); see the [full English README](README.en.md). Licensed under Apache-2.0.
 
 ## Beta 说明
 
@@ -155,14 +165,18 @@ An on-device AI agent for Android that operates apps and the web to get things d
 - 每个对话一个工作区，可以跑 Python、Node 和 shell 命令，处理你发来的文件，把结果存到手机的「下载/Mika」。
 - 默认断网，需要时在设置里的「文件与计算环境」打开「允许脚本联网」。只支持 arm64 设备。
 
+### 电脑上的 AI 工具也能用（MCP）
+
+手机连着电脑时，电脑上的 AI 工具可以通过 MCP 把任务交给 Mika，在手机上办完把结果拿回去。一条命令打开，只经数据线、要令牌；也可以在设置里打开局域网连接（默认关）。见[电脑连接说明](docs/mcp.md)。
+
 ## 快速开始
 
 ### 系统要求
 
 | 项目 | 要求 |
 |---|---|
-| 安装 | 安卓 11 及以上 |
-| 执行任务 | 安卓 13 及以上（后台屏和内置手机助手的要求） |
+| 安装、聊天、网页与沙箱任务 | 安卓 11 及以上（沙箱仅支持 arm64） |
+| 操作手机 App | 安卓 12 及以上；安卓 12、13 上后台操作可能影响主屏焦点 |
 | 推荐 | 安卓 14 及以上：后台屏有自己的焦点，不影响你在主屏打字；不同对话的任务同时进行也需要它 |
 | Linux 沙箱 | 仅 arm64 设备；其他设备照常安装，沙箱显示「此设备不支持」 |
 | 模型 | 一个支持工具调用的大模型 API Key |
@@ -201,6 +215,8 @@ Mika 靠无障碍读界面、做点按。不用手动去开：下一步配对成
 1. 添加服务商：选一个预设，或选「自定义」填接口地址；填 API Key。Ollama、LM Studio 这类自己机器上跑的服务，地址预填了默认端口，改成那台机器的地址即可，Key 可不填。
 2. 点「测试并保存」，连上第一家时会自动选一个主模型。
 3. 主模型要支持工具调用。可选：看图模型（看懂界面、看图找按钮）、轻量模型（便宜快的即可，处理判断结局、提取记忆等小事）。
+
+用 ChatGPT 登录或 Responses 接口的模型，可在各用途卡片下调整「思考强度」。默认用服务商默认值；选「用主模型」时也跟随它的强度，明确选同一个模型则可分别设置。档位优先采用服务商报告的列表；没报告时提供手动选项，实际支持情况以服务端为准。更高强度通常更慢、消耗更多 token。
 
 ### 5. 试一试
 
@@ -248,8 +264,8 @@ Mika 靠无障碍读界面、做点按。不用手动去开：下一步配对成
 **有的 App 页面读不到、截不到？**
 有些页面（比如付款、输密码）禁止截屏，Mika 看不到画面，也不会去识别上面的字。这类页面需要你接管处理，处理好交还给 Mika。
 
-**为什么要安卓 13？**
-Mika 在一块单独的后台屏上操作 App，内置手机助手和这块屏需要安卓 13 及以上。安卓 14 起后台屏有自己的焦点，不会影响你在主屏打字，所以更推荐。只用网页、沙箱和聊天，安卓 11、12 也能用。
+**为什么推荐安卓 14？旧系统能用吗？**
+Mika 在一块单独的后台屏上操作 App，安卓 12 起可以使用手机操作能力；安卓 12、13 上操作后台屏可能影响主屏焦点。安卓 14 起后台屏有自己的焦点，不会影响你在主屏打字，所以更推荐。只用网页、沙箱和聊天，安卓 11 也能用。
 
 **能用自己电脑或局域网里跑的模型吗？**
 可以。添加服务商时选「自定义」，接口地址填 `http://` 开头的也行，比如 `http://192.168.1.10:11434/v1`（手机和那台电脑在同一个 Wi-Fi 下）。本机和局域网的地址不加提示；不加密又不在局域网里的地址会提醒一句：API Key 和对话内容可能被同一网络里的人看到，能用 `https://` 就用。
@@ -307,13 +323,14 @@ Mika 在一块单独的后台屏上操作 App，内置手机助手和这块屏�
 
 - 发布在 GitHub Releases，tag 用 `vX.Y.Z`，APK 作为附件挂在这个版本上。
 - 检查更新：每次打开 App 查一次 `https://api.github.com/repos/wangzan101/Mika/releases/latest`，不经别的地址。
+- 关于页点「下载更新」后由系统下载服务在后台下载 APK，可查看进度、删除下载或失败后重试，重开应用仍可继续查看。下载完成后点「安装更新」，首次按提示允许 Mika 安装未知应用，再在系统安装页确认。安装前检查 APK 大小、发布附件提供的 SHA-256、包名、版本号和签名证书，系统安装器还会再验一次签名；自行编译、签名不同的版本不能直接覆盖成官方版，要先卸载。发布未包含 APK 时仍打开发布页。
 
 ## Star 增长
 
 <a href="https://star-history.com/#wangzan101/Mika&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261031" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261031" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261031-1500" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261031-1500" width="600" />
   </picture>
 </a>
 

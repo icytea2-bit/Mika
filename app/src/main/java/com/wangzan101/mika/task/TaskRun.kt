@@ -27,6 +27,7 @@ import android.util.Log
 import android.view.Display
 import com.wangzan101.mika.BuildConfig
 import com.wangzan101.mika.cap.phone.a11y.AndroidScreen
+import com.wangzan101.mika.cap.phone.a11y.AppCopyReader
 import com.wangzan101.mika.cap.phone.a11y.LazyPhoneScreen
 import com.wangzan101.mika.cap.phone.a11y.ScreenAccessibility
 import com.wangzan101.mika.cap.phone.a11y.PhoneUnavailable
@@ -34,7 +35,6 @@ import com.wangzan101.mika.cap.phone.PhoneServices
 import com.wangzan101.mika.cap.phone.a11y.launchableApps
 import com.wangzan101.mika.confirm.ConfirmationNotifier
 import com.wangzan101.mika.MikaApp
-import com.wangzan101.mika.core.userscreen.UserScreenMessage
 import com.wangzan101.mika.core.action.ConfirmChoice
 import com.wangzan101.mika.core.agent.AgentLoop
 import com.wangzan101.mika.core.agent.SystemPrompt
@@ -54,6 +54,7 @@ import com.wangzan101.mika.core.replay.RouteMatcher
 import com.wangzan101.mika.core.replay.RouteRecorder
 import com.wangzan101.mika.replay.FileRouteStore
 import com.wangzan101.mika.core.agent.JudgedOutcome
+import com.wangzan101.mika.core.agent.LearnGate
 import com.wangzan101.mika.core.agent.OutcomeJudge
 import com.wangzan101.mika.core.agent.StopSummary
 import com.wangzan101.mika.core.assembly.knownTools
@@ -312,7 +313,22 @@ class TaskRun(
     @Volatile var usedGroups: List<String> = emptyList()
         private set
 
-    fun joinedSteers(): List<String> = _steers.value.filter { it.state == SteerState.Joined }.map { it.text }
+    fun joinedSteers(): List<String> = joined().map { it.text }
+
+    /** 和 [joinedSteers] 一一对应:每句插话打断的那段回复,没打断的是空串。 */
+    fun joinedInterrupted(): List<String> = joined().map { it.interrupted.orEmpty() }
+
+    /** 和 [joinedSteers] 一一对应:每句插话交给模型之前已经说完的那段回复,没有的是空串。 */
+    fun joinedFinished(): List<String> = joined().map { it.finished.orEmpty() }
+
+    private fun joined() = _steers.value.filter { it.state == SteerState.Joined }
+
+    /** 插话撤掉的那段回复,等这一批插话里第一句交给模型时挂到它上面。 */
+    private val steerJoin = SteerJoin()
+
+    private fun joinSteer(id: String) {
+        synchronized(service.taskState.shownLock) { _steers.value = steerJoin.joined(_steers.value, id) }
+    }
 
     /** 把 [ids] 这几句改成 [to];给了 [from] 时只改还在那个状态的(收下和交给模型可能先后颠倒,不往回改)。 */
     private fun markSteers(ids: Set<String>, to: SteerState, from: SteerState? = null) {
@@ -330,7 +346,9 @@ class TaskRun(
                     val n = synchronized(activityLog) { activityLog += e; activityLog.size }
                     _activities.value = logView(n)
                 }
-                e is RunEvent.State && e.name == "steer_received" -> markSteers(setOf(e.detail), SteerState.Joined)
+                e is RunEvent.State && e.name == "reply_interrupted" -> steerJoin.interrupted(e.detail)
+                e is RunEvent.State && e.name == "reply_finished_before_steer" -> steerJoin.finished(e.detail)
+                e is RunEvent.State && e.name == "steer_received" -> joinSteer(e.detail)
             }
         }
     }
@@ -370,7 +388,6 @@ class TaskRun(
     fun shownState(): TaskState? = synchronized(publishLock) { if (ended) null else _state.value }
 
     suspend fun execute(priorTurns: List<Turn>): TaskState {
-        if (Build.VERSION.SDK_INT < Prerequisites.MIN_SDK) return TaskState.Failed(TaskService.TOO_OLD, FailKind.Environment)
         // 手机一侧(内置助手、无障碍、虚拟屏)第一次 launch_app 时才接上:只用网页、沙箱的任务不需要它们
         var connection: com.wangzan101.mika.cap.phone.shell.ShellBinding? = null
         var phone: PhoneSide? = null
@@ -408,7 +425,7 @@ class TaskRun(
                 // 用户对某个 App/站点的补充放在私有目录 personal/apps、personal/sites 下
                 val userNotes = KnowledgeStore.loadNotes(File(service.filesDir, "personal"))
                 // 自学的 App 知识里改名前写下的工具名换成现在的
-                val learnedNotes = legacyNames().let { legacy -> memoryRuntime.appKnowledge().notes().mapValues { legacy.rewrite(it.value) } }
+                val learnedNotes = legacyNames().let { legacy -> memoryRuntime.appKnowledge().notes().mapValues { it.value.copy(text = legacy.rewrite(it.value.text)) } }
                 KnowledgeStore(KnowledgeStore.loadBundled(), userNotes, learnedNotes) to GuideCatalog.loadBundled()
             }
             val metrics = mainScreenMetrics()
@@ -420,6 +437,8 @@ class TaskRun(
 
             /** 接上手机:连内置助手、等无障碍、备好(到第一次 launch_app 才建的)虚拟屏;缺一样就报 phone_unavailable。 */
             suspend fun connectPhone(): AndroidScreen {
+                // 版本要求只属于手机操作;旧系统仍可聊天、使用网页和沙箱,也不应被引导去配对不支持的助手。
+                if (Build.VERSION.SDK_INT < Prerequisites.MIN_SDK) throw PhoneUnavailable(TaskService.TOO_OLD)
                 val conn = connection ?: phoneServices.sharedShell.acquire().also { connection = it }
                 val shell = withTimeoutOrNull(SHELL_WAIT_MS) { conn.shell.filterNotNull().first() }
                     ?: run {
@@ -459,6 +478,10 @@ class TaskRun(
                     a11y, shell, agentDisplay, { recovery.markClipHeld(it) },
                     clipLock = service.clipLock, checkOtherTasks = parallel,
                     reserve = { pkg -> service.reservePackage(pkg, key) { runCatching { shell.displayOfPackage(pkg) }.getOrDefault(-1) >= 0 } },
+                    // 另一份用户里的那份单独占:和本来那份互不挡
+                    reserveCopy = { pkg, user ->
+                        service.reservePackage("$pkg@$user", key) { runCatching { shell.displayOfPackageInUser(pkg, user) }.getOrDefault(-1) >= 0 }
+                    },
                     clipSaved = { original, ours -> recovery.saveClip(original, ours) },
                     handedOver = { handoverRef?.handedOver == true },
                     // 打字一段一段出来;App 知识说限制浏览快慢的 App 打得更慢
@@ -471,7 +494,13 @@ class TaskRun(
                 return screen
             }
             val phoneScreen = LazyPhoneScreen(metrics.widthPixels, metrics.heightPixels,
-                listApps = { withContext(Dispatchers.IO) { launchableApps(service.packageManager, service.packageName) } }) { connectPhone() }
+                listApps = { withContext(Dispatchers.IO) { launchableApps(service.packageManager, service.packageName) } },
+                // 另一份用户里的 App 要问内置助手:助手已经连着才问,不为它去接
+                appCopies = {
+                    phoneServices.hub.shell.value?.let { s ->
+                        withContext(Dispatchers.IO) { runCatching { AppCopyReader.read(s, launchableApps(service.packageManager, service.packageName)) }.getOrNull() }
+                    }.orEmpty()
+                }) { connectPhone() }
             // 挪回虚拟屏后等窗口出现,Agent 接下来读屏才读得到
             suspend fun moveTask(taskId: Int, to: Int): Boolean {
                 val p = phone ?: return false
@@ -523,7 +552,7 @@ class TaskRun(
                     ) }
                 webStack = stack
                 side.launch {
-                    // 网页界面时画中画显示网页显示的画面;换界面时先清掉上一边的画面;页面在用户手上(接管中)时不显示
+                    // 网页界面时画中画显示网页显示的画面;换界面时先清掉上一边的画面;怎么显示见 WebPreview
                     var last: String? = null
                     while (true) {
                         delay(WEB_FRAME_MS)
@@ -532,12 +561,13 @@ class TaskRun(
                             _frames.value = null
                             last = surface
                         }
-                        val onWeb = surface == WEB
-                        when {
-                            onWeb && stack.handedOver -> _frames.value = null
-                            onWeb -> withContext(Dispatchers.IO) { stack.host.latestFrame() }?.let { _frames.value = it }
+                        val show = WebPreview.of(onWeb = surface == WEB, hasTab = stack.hasVisibleTab, handedOver = stack.handedOver)
+                        when (show) {
+                            WebPreview.Frames -> withContext(Dispatchers.IO) { stack.host.latestFrame() }?.let { _frames.value = it }
+                            WebPreview.Hidden, WebPreview.NoPage -> _frames.value = null
+                            WebPreview.Off -> Unit
                         }
-                        _webOpen.value = onWeb
+                        _webOpen.value = show.open
                     }
                 }
                 stack.screen
@@ -548,7 +578,7 @@ class TaskRun(
             val runSpec = RunSpec(RunId(key), goal, conversationId,
                 priorTurns,
                 provenance, if (conditionCheck) setOf("web", "sandbox") else null, readOnly = conditionCheck)
-            val runApproval = approvalControl.start().also { approval = it }
+            val runApproval = approvalControl.start(remote = provenance.origin == RunOrigin.Mcp).also { approval = it }
             val childRunner = if (provenance.origin == RunOrigin.Ui && web != null) ChildAgentRunner(
                 create = { childSpec ->
                     val childTools = toolDispatcher(phoneScreen, model.capabilities.vision,
@@ -796,8 +826,10 @@ class TaskRun(
         val side = sideScope ?: return
         side.launch(Dispatchers.IO) {
             p.screen.target.filterNotNull().collectLatest { t ->
-                // 用户在「干活时」关掉了静音就不碰它的声音
-                if (FeatureFlags.get(service).muteTarget() && !p.audio.mute(t.packageName)) {
+                // 用户在「干活时」关掉了静音就不碰它的声音。静音按包作用在 Mika 所在的用户上:目标是另一份用户里的那份时不碰,
+                // 免得把用户手上本来那份静了音
+                val otherCopy = t.userId >= 0 && t.userId != AppCopyReader.myUser
+                if (FeatureFlags.get(service).muteTarget() && !otherCopy && !p.audio.mute(t.packageName)) {
                     muteFailedFor = t.packageName
                     publish(_state.value)
                 }
@@ -852,7 +884,7 @@ class TaskRun(
 
     /**
      * 结果交给用户之后调用(不拖慢、不改交出的回答):回答按用户的要求判结局([OutcomeJudge],轻量模型优先),
-     * 记进运行记录和这一轮对话;只有办成的才记路线、给回放的路线记成功。
+     * 记进运行记录和这一轮对话;只有办成的([LearnGate])才记路线、给回放的路线记成功。
      * 放弃、失败、取消的不判(结局已经清楚),返回 null;判不成是 [RunOutcome.Unknown]。
      */
     suspend fun settleOutcome(end: TaskState, conversations: ConversationStore): JudgedOutcome? {
@@ -867,8 +899,8 @@ class TaskRun(
                 .onFailure { Log.w(TAG, "could not save run outcome", it) }
         }
         k.agent.noteOutcome(judged.outcome)
-        // 只有办成、核查通过的才记成路线;从落盘的运行事件里取。带着用户屏幕的话意思在屏幕上,不按字记路线
-        if (k.routesOn && judged.outcome == RunOutcome.Done && end.verified && runId != null && !UserScreenMessage.has(goal)) k.runStore?.let { s ->
+        // 只有办成的才记成路线;从落盘的运行事件里取
+        if (runId != null && LearnGate.shouldSaveRoute(k.routesOn, end, judged.outcome, runId, goal)) k.runStore?.let { s ->
             saveRoute(goal, withContext(Dispatchers.IO) { s.events(runId) }, k.dispatcher.index)
         }
         return judged
@@ -885,7 +917,7 @@ class TaskRun(
             k.switches, k.memory, memoryRuntime.skills(), k.catalog,
             extractor = k.memory?.let { MemoryExtractor(k.light ?: k.model) },
             drafter = SkillDrafter(k.model),
-            appDrafter = AppKnowledgeDrafter(k.model),
+            appDrafter = AppKnowledgeDrafter(k.light ?: k.model),
             appDrafts = memoryRuntime.appKnowledge(),
             ids = { UUID.randomUUID().toString() },
             autoApprove = env.evalHooks.autoApproveSkillDrafts,
@@ -908,7 +940,7 @@ class TaskRun(
         }
     }
 
-    /** 核查通过的成功记成路线;记不成(不该记、写盘失败)不影响任务结局。 */
+    /** 办成的运行记成路线;记不成(不该记、写盘失败)不影响任务结局。 */
     private suspend fun saveRoute(goal: String, events: List<RunEvent>, tools: ToolIndex) = withContext(Dispatchers.IO) {
         runCatching {
             val route = RouteRecorder.record(goal, events, System.currentTimeMillis(), tools) ?: return@runCatching

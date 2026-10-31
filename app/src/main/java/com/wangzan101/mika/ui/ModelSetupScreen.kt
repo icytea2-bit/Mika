@@ -7,6 +7,9 @@ import android.net.Uri
 import android.widget.Toast
 import com.wangzan101.mika.R
 import com.wangzan101.mika.core.chatgpt.ChatGptAuth
+import com.wangzan101.mika.core.chatgpt.SignInException
+import com.wangzan101.mika.MikaApp
+import com.wangzan101.mika.settings.ChatGptSignIns
 import com.wangzan101.mika.i18n.tr
 import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
@@ -84,7 +87,10 @@ import com.wangzan101.mika.ui.theme.MikaType
 fun ModelSetupScreen(store: ProviderStore, onboarding: Boolean, onBack: () -> Unit, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val vm = remember { ModelSetupViewModel(store, scope, chatGptBrowser = AndroidChatGptBrowser(context.applicationContext)) }
+    val vm = remember {
+        val signIns = (context.applicationContext as? MikaApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
+        ModelSetupViewModel(store, scope, chatGptBrowser = AndroidChatGptBrowser(context.applicationContext), signIns = signIns)
+    }
     val ui by vm.state.collectAsState()
     var picking by rememberSaveable { mutableStateOf<ModelRole?>(null) }
     var openProvider by rememberSaveable { mutableStateOf<String?>(null) }
@@ -141,6 +147,7 @@ fun ModelSetupScreen(store: ProviderStore, onboarding: Boolean, onBack: () -> Un
             testAndSave = vm::testAndSave, openForm = vm::openForm, closeForm = vm::closeForm,
             openProvider = { openProvider = it; allModels = false }, pickRole = { picking = it }, next = onDone,
             signInWithChatGpt = vm::signInWithChatGpt, cancelChatGpt = vm::cancelChatGptSignIn,
+            setReasoningEffort = vm::setReasoningEffort,
         ),
         onBack,
     )
@@ -162,6 +169,7 @@ class ModelSetupActions(
     val next: () -> Unit = {},
     val signInWithChatGpt: () -> Unit = {},
     val cancelChatGpt: () -> Unit = {},
+    val setReasoningEffort: (ModelRole, String?) -> Unit = { _, _ -> },
 )
 
 /**
@@ -186,10 +194,10 @@ fun ModelSetupContent(ui: ModelSetupUi, onboarding: Boolean, actions: ModelSetup
                 // 上手时先连服务商再选模型;设置里先看用途
                 if (onboarding) {
                     ProvidersSection(ui, actions)
-                    RolesSection(ui, onPick)
+                    RolesSection(ui, onPick, actions.setReasoningEffort)
                     FooterNote(ModelSetupCopy.ONBOARDING_NOTE)
                 } else {
-                    RolesSection(ui, onPick)
+                    RolesSection(ui, onPick, actions.setReasoningEffort)
                     ProvidersSection(ui, actions)
                 }
                 Spacer(Modifier.height(16.dp))
@@ -381,7 +389,7 @@ private fun ChatGptWelcome(onDismiss: () -> Unit) {
 }
 
 /**
- * 登录要用的系统能力:授权页用系统浏览器打开;回调页上放一个回到 Mika 的链接(intent 链接,点了由浏览器打开 Mika);
+ * 登录要用的系统能力:授权页用系统浏览器打开;回调页(换完令牌之后才给出)写成功或失败的原因,再放一个回到 Mika 的链接(intent 链接,点了由浏览器打开 Mika);
  * 登录完(成功或失败)把 Mika 带回前台。安卓限制后台打开界面,带不回来时用户点回调页的链接或从最近任务回来。
  */
 private class AndroidChatGptBrowser(private val context: Context) : ChatGptBrowser {
@@ -403,8 +411,8 @@ private class AndroidChatGptBrowser(private val context: Context) : ChatGptBrows
         }
     }
 
-    override fun page(params: Map<String, String>): String {
-        val text = tr(if (params["error"] != null) R.string.chatgpt_page_cancelled else R.string.chatgpt_page_done)
+    override fun page(failure: SignInException?): String {
+        val text = if (failure == null) tr(R.string.chatgpt_page_done) else ModelsCopy.chatGptFailure(failure.reason, failure.code)
         val back = "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${context.packageName};end"
         return ChatGptPage.html(tr(R.string.chatgpt_page_title), text, tr(R.string.chatgpt_page_back), back)
     }
@@ -423,13 +431,14 @@ internal object ChatGptPage {
 
 /** 用途:主模型、看图模型、轻量模型各一张卡,点开是选择页。 */
 @Composable
-private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit) {
+private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReasoning: (ModelRole, String?) -> Unit) {
     GroupLabel(ModelsCopy.ROLES)
     GroupCard {
         ModelRole.entries.forEachIndexed { i, role ->
             RoleCard(ModelsCopy.roleIcon(role), ModelsCopy.roleLabel(role), ModelsCopy.roleLine(ui, role), first = i == 0, tag = "role-${role.name.lowercase()}") {
                 onPick(role)
             }
+            ReasoningControl(ui, role) { onReasoning(role, it) }
         }
     }
 }

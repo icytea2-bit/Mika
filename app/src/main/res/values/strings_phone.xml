@@ -15,7 +15,7 @@
     <string name="phone_open_dev_options">Open Developer options</string>
     <string name="phone_step_usb_brief">Keeps working without Wi-Fi</string>
     <string name="phone_step_a11y">Turn on Mika’s accessibility</string>
-    <string name="phone_step_a11y_body">Find Mika in your system’s “Accessibility” settings and turn it on. Then Mika reads the pairing code by itself when pairing — no typing needed. You can also skip this (recommended): after pairing, Mika turns it on by itself without being blocked by Android’s “restricted setting”, and this time you enter the code from the notification.</string>
+    <string name="phone_step_a11y_body">Find Mika in your system’s “Accessibility” settings and turn it on. Then Mika reads the pairing code by itself when pairing — no typing needed. You can also skip this (recommended): after pairing, Mika turns it on by itself without being blocked by Android’s “restricted setting”, and this time you enter the code from the notification. If the system says “An app is obscuring a permission request”, close other apps’ floating windows or bubbles and try again.</string>
     <string name="phone_step_a11y_action">Open Accessibility settings</string>
     <string name="phone_step_a11y_brief">Mika reads the pairing code itself</string>
     <string name="phone_step_wireless">Turn on Wireless debugging</string>
@@ -122,8 +122,9 @@
     <string name="phone_connect_port_submit">Connect</string>
     <string name="fail_usb_stopped">Phone helper stopped</string>
     <string name="fail_usb_stopped_body">It was started from a computer and stops when the phone restarts. Run the USB command on the computer again, or pair Wireless debugging so it restarts by itself.</string>
-    <string name="phone_usb_toggle">Use a computer instead (USB)</string>
-    <string name="phone_usb_body">Plug in a USB cable, turn on “USB debugging”, and run this command on the computer. After a phone restart, run it again, or pair Wireless debugging to make it automatic.</string>
+    <string name="phone_usb_ask">Can’t find Wireless debugging?</string>
+    <string name="phone_usb_title">Can’t use Wireless debugging on this phone? Start from a computer instead</string>
+    <string name="phone_usb_body">Plug the phone into a computer with a USB cable and run this command on the computer. Run it again after the phone restarts.</string>
     <string name="phone_usb_copy">Copy</string>
     <string name="phone_usb_copied">Command copied</string>
 </resources>

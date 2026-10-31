@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 用户在关于页下载新版后，交给系统安装器确认覆盖安装。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 沙箱联网时读当前网络的 DNS 服务器 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -125,6 +127,31 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs a user-requested phone task on the app's own virtual display and shows its progress" />
+        </service>
+
+        <!--
+            电脑连接(MCP):用户在设置里打开、或电脑经 USB 调试打开后才运行,让监听端口在后台也开着;关掉就停。
+            对外开放只为让 adb shell 能起它(am start-foreground-service):调用方必须持有 INTERACT_ACROSS_USERS_FULL,
+            shell 有,普通 App 拿不到,adb 也授不了
+        -->
+        <service
+            android:name=".mcp.McpService"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the endpoint the user turned on (local network, or loopback for a computer on USB) open so the user's own computer can hand tasks to the app" />
+        </service>
+
+        <!-- 用 ChatGPT 登录期间:用户在浏览器里登录时撑住进程,本机回调才有人接;登录一结束就停 -->
+        <service
+            android:name=".settings.ChatGptSignInService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the loopback sign-in callback answering while the user signs in to their account in the external browser" />
         </service>
 
         <!-- 后台准备运行环境(解出随 APK 自带的根文件系统),只在准备期间运行 -->

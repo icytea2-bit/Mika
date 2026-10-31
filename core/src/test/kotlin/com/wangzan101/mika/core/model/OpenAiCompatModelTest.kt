@@ -99,6 +99,10 @@ class OpenAiCompatModelTest {
         assertTrue(errorFor(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"insufficient_quota"}}""")) is ModelError.QuotaExceeded)
         val rl = errorFor(MockResponse().setResponseCode(429).setHeader("retry-after", "2")) as ModelError.RateLimited
         assertEquals(2000L, rl.retryAfterMs)
+        assertTrue(errorFor(MockResponse().setResponseCode(429).setBody("""{"error":{"message":"Rate limit reached, limit: 60"}}""")) is ModelError.RateLimited)
+        // 这个模型额度为零(Gemini 的 OpenAI 兼容入口回数组):换模型才行
+        val zero = errorFor(MockResponse().setResponseCode(429).setBody("""[{"error":{"code":429,"message":"Quota exceeded for metric: free_tier_requests, limit: 0","status":"RESOURCE_EXHAUSTED"}}]"""))
+        assertTrue(zero is ModelError.ModelNotAvailable)
         assertTrue(errorFor(MockResponse().setResponseCode(400).setBody("context_length_exceeded")) is ModelError.ContextTooLong)
         assertTrue(errorFor(MockResponse().setResponseCode(400).setBody("exceeds the maximum context")) is ModelError.ContextTooLong)
         assertEquals("m", (errorFor(MockResponse().setResponseCode(404)) as ModelError.ModelNotFound).model)
@@ -283,5 +287,17 @@ class OpenAiCompatModelTest {
         server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}"""))
         model().complete("SYS", user, emptyList())
         assertFalse(body().toString().contains("cache_control"))
+    }
+
+    // 插话打断后:半截回复是一条只有文字的 assistant 消息,不带调用和思考字段;后面两条 user 消息各自原样发出
+    @Test fun interruptedReplyIsAPlainAssistantMessageBeforeTheSteer() = runTest {
+        server.enqueue(ok("""{"choices":[{"finish_reason":"stop","message":{"content":"好"}}]}"""))
+        model().complete("s", InterruptedHistory.messages, emptyList())
+        val msgs = body()["messages"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("system", "user", "assistant", "user", "user"), msgs.map { it["role"]!!.jsonPrimitive.content })
+        assertEquals(setOf("role", "content"), msgs[2].keys)
+        assertEquals(InterruptedHistory.PARTIAL, msgs[2]["content"]!!.jsonPrimitive.content)
+        assertEquals(InterruptedHistory.STEER, msgs[3]["content"]!!.jsonPrimitive.content)
+        assertEquals(InterruptedHistory.RUNTIME, msgs[4]["content"]!!.jsonPrimitive.content)
     }
 }
