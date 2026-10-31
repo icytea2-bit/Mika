@@ -40,7 +40,7 @@ internal object PromptSurfaceFeedback {
         "tab_crashed", "obscured", "offscreen", "key_not_allowed", "no_tab_open", "handed_over", "site_mode_unavailable",
         "downloads_unavailable", "devtools_unavailable", "input_uncertain", "not_a_select", "no_such_option", "option_disabled",
         "select_disabled", "select_not_applied", "web_surface_inactive", "upload_not_opened", "upload_unavailable", "focus_moved",
-        "link_unresolved", "invalid_link", "phone_unavailable", "ref_expired", "some_new_code", "Not A Code!",
+        "link_unresolved", "invalid_link", "phone_unavailable", "ref_expired", "keep_open_unavailable", "users_page", "some_new_code", "Not A Code!",
     )
 
     private class Checked(private val c: ScreenCheck?, private val base: FakeScreen = FakeScreen()) : ScreenPort by base {
@@ -127,6 +127,10 @@ internal object PromptSurfaceFeedback {
         }, clock = { 1L }, ids = { "m" })
         val withMem = toolDispatcher(FakeScreen(), memory = mem, utterances = UserUtterances().apply { add("帮我看看订单") })
         add("memory quote not from user", withMem, "memory_save", """{"kind":"fact","content":"x","quote":"别的话"}""")
+        val withSkills = toolDispatcher(FakeScreen(), skills = com.wangzan101.mika.core.knowledge.GuideCatalog.loadBundled(), utterances = UserUtterances().apply { add("帮我建一个技能") },
+            personalSkills = com.wangzan101.mika.core.skills.InMemoryPersonalSkills())
+        add("skill save missing section", withSkills, "skill_save",
+            """{"markdown":"---\nname: order-coffee\ndisplay: 点咖啡\ndescription: 点咖啡时用\n---\n## 入口\n打开 App","quote":"帮我建一个技能"}""")
 
         val notReady = toolDispatcher(FakeScreen(), sandbox = FakeSandbox(SandboxStatus.NotInstalled), workspace = { "w" })
         add("sandbox not ready", notReady, "run_command", """{"command":"ls"}""")

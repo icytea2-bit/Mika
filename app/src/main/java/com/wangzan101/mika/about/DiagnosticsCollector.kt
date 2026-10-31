@@ -46,6 +46,7 @@ fun SystemStatus.setupInputs(
     accessibilitySkipped = accessibilitySkipped, restrictedSettings = restrictedSettings,
     confirmed = confirmed, revisit = revisit,
     wirelessMissing = wirelessDebuggingMissing, stalledMs = stalledMs, usbAsked = usbAsked,
+    restart = helperRestart,
 )
 
 /**
@@ -142,6 +143,7 @@ object DiagnosticsCollector {
             light = role(ModelRole.Light),
             chatGptSignedIn = chatGpt != null && store.hasKey(chatGpt.id),
             chatGptLastFailure = app.chatGptSignIn.lastFailure,
+            accountLastFailure = app.chatGptSignIn.lastAccountFailure,
         )
     }
 

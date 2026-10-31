@@ -22,24 +22,15 @@ flowchart LR
     CLI -->|"HTTP, optionally forwarded through ADB"| API
 ```
 
-## Install
+## Installation and maintenance
 
-Requires Python 3.10+ and a Mika APK containing task API v1. Older MCP-only APKs are rejected with a compatibility message. This feature is available in source builds; existing MCP support alone does not prove that a published APK includes it.
+See the [CLI / Skill installation guide](computer-install.en.md) for installation, updates, rollback and removal. Normally choose either the CLI or MCP. The phone must support task API v1, first shipped in official APK v0.1.23.
 
-From the repository root, install with pipx or inside your own Python virtual environment:
-
-```bash
-pipx install ./tools/mika
-# Or in an activated virtual environment:
-python3 -m pip install ./tools/mika
-mika --help
-```
-
-Alternatively run `python3 tools/mika/scripts/mika_cli.py --help` directly. There are no Python runtime dependencies. Install the computer Skill by copying the complete `tools/mika/` directory into your agent's supported skills directory as `mika`. It includes the client and license and works outside the repository. It does not depend on Mika's internal phone skills.
+With only the Skill installed, `mika` below means `python3 <skills-directory>/mika/scripts/mika_cli.py` (`py -3` on Windows).
 
 ## Connect
 
-ADB mode requires Android platform-tools and a phone connected over USB or already paired and connected over wireless debugging. If the wireless device is not listed by ADB, complete pairing/connection using the phone's wireless debugging screen first.
+ADB mode requires Android platform-tools and either USB or connected wireless ADB. For wireless ADB, this computer must be paired and connected to the phone, which must appear as `device` in `adb devices`. Pairing Mika's built-in helper on the phone does not pair the computer; both also differ from direct LAN access below.
 
 ```bash
 mika devices --json
@@ -50,6 +41,8 @@ mika doctor --device SERIAL --json
 You may omit `--device` when exactly one device is online; the existing ANDROID_SERIAL environment variable is also supported. Multiple devices require a choice, and connection failure never selects a different phone. `connect` runs Mika's official bootstrap script to enable computer access and start the required helper; it does not submit a task. Other commands only read the current connection.
 
 Each invocation reads the current token, port and boot number, allocates its own temporary `adb forward tcp:0` mapping, then removes only that mapping. Tokens stay in process memory; bootstrap output is captured instead of printed. Exiting the CLI leaves the phone service and ongoing tasks running.
+
+The CLI handles forwarding; you do not need the MCP instructions for manually forwarding a fixed port. After reconnecting the cable, make sure the same phone is back in ADB. After a phone reboot or turning off computer access, run `connect` again.
 
 For LAN/private-network access explicitly enabled in the phone's settings:
 
@@ -66,6 +59,7 @@ mika --device SERIAL task run --goal-file task.txt --json
 mika --device SERIAL task status TASK_ID --json
 mika --device SERIAL task wait TASK_ID --timeout 45 --json
 mika --device SERIAL task answer TASK_ID --text-file answer.txt --json
+mika --device SERIAL task steer TASK_ID --text "Only summarize today's messages" --json
 mika --device SERIAL task cancel TASK_ID --json
 mika --device SERIAL task list --limit 10 --json
 ```
@@ -73,6 +67,10 @@ mika --device SERIAL task list --limit 10 --json
 Use `--goal` / `--text` for simple text, or UTF-8 files for multiline input. A file argument of `-` reads stdin. `run --conversation CONVERSATION_ID` starts another task in an existing remote conversation; `answer` only answers an open question. Existing mcp- conversation IDs remain valid across both interfaces. Their historical prefix does not mean the CLI uses MCP.
 
 `run` returns as soon as a task ID is available. Each `wait` lasts at most 50 seconds and returns on a status change or completion. An existing question or phone handoff is returned immediately. Budget expiry returns the current state without failing, cancelling or resubmitting the phone task. Cancellation's `accepted` is an acknowledgement; query the task and observe cancelled before reporting that it has stopped.
+
+`steer` adds instructions to a `running` remote task without changing its task ID or context. It also accepts `--text-file` (a file or `-` for stdin), up to 4000 characters. `accepted: true` and `message_id` acknowledge inbox delivery only. Query `status` and find the message in `steers`: `received` means queued, `joined` means added to this task's context, and `not_applied` means unused when the task ended or was cancelled. `joined` does not prove successful execution. An action already executing finishes first; steering does not undo past actions.
+
+Queued, paused, question-waiting, phone-handoff and terminal tasks reject steering (409). Use `answer` for questions and the phone for handoff/approvals. Even a race with task completion never starts another task. Do not repeat a write whose response was lost: query the same task, and report uncertainty if no message ID was received and delivery cannot be established. Steering requires the APK's `task_steer` capability; older APKs prompt an update instead of falling back to a new task.
 
 `--json` writes one JSON object to stdout for both success and errors. The default is indented JSON, with errors on stderr. Connection options and `--json` work before or after subcommands. `--request-timeout` controls HTTP timeouts; a wait request has at least its wait budget plus five seconds to receive a response.
 
@@ -101,6 +99,7 @@ All paths below are relative to `/api/v1` and use the same Bearer authentication
 | GET /tasks/ID | Current task state. |
 | POST /tasks/ID/wait | timeout_s 1–50, default 30; state and changed. |
 | POST /tasks/ID/answer | text; returns task_id and accepted. |
+| POST /tasks/ID/steer | text; 202 with task_id, message_id and accepted. Only accepts running tasks. |
 | POST /tasks/ID/cancel | Empty object; 202 when accepted, 200 for an already-terminal task; returns accepted. |
 
 Business validation errors return 400, missing tasks 404, answers incompatible with the current state 409, and refused starts 503. Authentication, origin and rate-limit policies are shared with `/mcp`. Both adapters use the same remote task index. Clients with the same access authorization can operate on remote tasks across interfaces; phone-local tasks remain inaccessible.

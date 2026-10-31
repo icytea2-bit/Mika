@@ -105,11 +105,13 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wangzan101.mika.R
+import com.wangzan101.mika.cap.web.KeptPage
 import com.wangzan101.mika.chat.SharedFile
 import com.wangzan101.mika.confirm.ConfirmationCopy
 import com.wangzan101.mika.settings.Prerequisites
 import com.wangzan101.mika.takeover.Takeover
 import com.wangzan101.mika.task.SteerNote
+import com.wangzan101.mika.task.SteerState
 import com.wangzan101.mika.task.TaskService
 import com.wangzan101.mika.task.unconsumed
 import com.wangzan101.mika.ui.components.BarIconButton
@@ -165,6 +167,9 @@ fun ChatScreen(
 ) {
     val ui by vm.ui.collectAsState()
     val others by vm.otherRunning.collectAsState()
+    val keptAny by vm.keptPage.collectAsState()
+    // 只管这个对话留下的那一页
+    val kept = keptAny?.takeIf { it.conversationId == ui.conversationId }
     val live by frames.collectAsState()
     val webLive by webOpen.collectAsState()
     // 任务一结束虚拟屏就释放了;完成时小窗还要停留几秒打勾,继续显示最后一帧
@@ -180,6 +185,7 @@ fun ChatScreen(
     val frame = live ?: lastFrame.takeIf { ui.pip.visible && ui.pip.mode == PipMode.Done }
     val webContent = if (ui.pip.mode == PipMode.Done) lastFrameWasWeb else webLive
     var input by rememberSaveable { mutableStateOf("") }
+    var editRequest by remember { mutableIntStateOf(0) }
     var composerHeight by rememberSaveable { mutableIntStateOf(0) }
     var topHeight by rememberSaveable { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -278,7 +284,7 @@ fun ChatScreen(
                 }
                 ui.exchanges.forEachIndexed { i, ex ->
                     val backgroundNote = i == ui.exchanges.lastIndex && ui.operatingPhone
-                    exchange(i, ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource)
+                    exchange(i, ex, ui.conversationId, ui.takeoverStage, vm, reduceMotion, backgroundNote, openRun, loadSource, openSource, kept)
                 }
                 if (phoneSetupNeeded && ui.exchanges.isNotEmpty()) item("phone-setup") { PhoneSetupLine(openPhoneSetup) }
                 ui.blocked?.let { problems ->
@@ -295,7 +301,8 @@ fun ChatScreen(
             }
         }
 
-        val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace))
+        // 没有任务在跑、这个对话留着一页在后台运行时:顶栏写「后台保持着 1 个网页」
+        val sub = ChatCopy.subtitle(last, last?.let(vm::livePlace)) ?: kept?.let { ChatCopy.KEPT_PAGE to ChatCopy.Tone.Ok }
         Column(Modifier.behindMenu(menuOpen) { lift.value }.onSizeChanged { topHeight = it.height }) {
             TopBar(
                 ChatCopy.APP_TITLE,
@@ -307,6 +314,7 @@ fun ChatScreen(
                 subtitleColor = when (sub?.second) {
                     ChatCopy.Tone.Accent -> c.accent
                     ChatCopy.Tone.Warn -> c.warn
+                    ChatCopy.Tone.Ok -> c.ok
                     null -> Color.Unspecified
                 },
             )
@@ -333,6 +341,7 @@ fun ChatScreen(
             onDismissRejected = vm::dismissRejected,
             quote = ui.quote,
             onRemoveQuote = vm::clearQuote,
+            editRequest = editRequest,
         )
 
         AgentPip(
@@ -356,6 +365,8 @@ fun ChatScreen(
 
         // 长按消息的菜单盖在最上面:复制纯文字;引用放到输入框上方;选择文字让那条换回系统的长按选中
         menu?.let { m ->
+            val pending = withdrawableSteer(ui.exchanges, m.key)
+            val canEdit = input.isBlank() && ui.quote == null && ui.attachments.isEmpty() && !ui.importing
             MessageMenu(
                 m, progress = { lift.value },
                 onCopy = { closeMenu { copyMessage(context, m.text) } },
@@ -367,6 +378,10 @@ fun ChatScreen(
                     }
                 },
                 onDismiss = { closeMenu() },
+                onEdit = if (pending != null && canEdit) ({ closeMenu {
+                    vm.editSteer(pending.id)?.let { input = it; editRequest++ }
+                } }) else null,
+                onWithdraw = pending?.let { n -> ({ closeMenu { vm.withdrawSteer(n.id) } }) },
             )
         }
     }
@@ -433,6 +448,7 @@ private fun ExampleRow(icon: ImageVector, text: String, first: Boolean, onClick:
 private fun LazyListScope.exchange(
     index: Int, ex: Exchange, conversationId: String?, stage: Takeover.Stage, vm: ChatViewModel, reduceMotion: Boolean, backgroundNote: Boolean,
     openRun: (String) -> Unit, loadSource: suspend (String) -> EvidenceSource?, openSource: (String?, String?) -> Unit,
+    kept: KeptPage? = null,
 ) {
     if (ex.goal.isNotEmpty()) item("u$index") { UserBubble(ex.goal, conversationId, key = "u$index") }
     val active = ex.status.isActive()
@@ -455,6 +471,8 @@ private fun LazyListScope.exchange(
     ex.draft?.takeIf(String::isNotBlank)?.let { draft -> item("d$index") { DraftText(draft, ex.waitingForModel) } }
     waiting.forEach(::steer)
     item("r$index") { StatusCard(ex.status, stage, vm, ex.runId, loadSource, openSource, "r$index") }
+    // 这一轮结束后留在后台运行的那一页:还开着是绿色一行(能关),关了是一句原因
+    keptPageRow(index, ex, kept, vm::closeKeptPage)
     if (ex.files.isNotEmpty()) item("f$index") { FileCards(ex.files) }
     learningNotes(index, ex, vm)
 }
@@ -464,9 +482,18 @@ private fun LazyListScope.exchange(
  * 正在长出来的回答排在两段中间。
  */
 internal fun steersAroundDraft(steers: List<SteerNote>): Pair<List<SteerNote>, List<SteerNote>> {
-    val first = steers.indexOfFirst { it.state.unconsumed }.let { if (it < 0) steers.size else it }
-    return steers.take(first) to steers.drop(first)
+    val visible = steers.filterNot { it.state == SteerState.Withdrawn }
+    val first = visible.indexOfFirst { it.state.unconsumed }.let { if (it < 0) visible.size else it }
+    return visible.take(first) to visible.drop(first)
 }
+
+/**
+ * 长按的 [key] 是进行中那一问一答里、模型还没取走的手机插话时给出它,菜单据此提供撤回和编辑。
+ * 电脑追加的([SteerNote.remote])不给:编辑会把只归当前任务的话变成手机插话、可能转成下一件事;撤不撤由电脑定。
+ */
+internal fun withdrawableSteer(exchanges: List<Exchange>, key: String): SteerNote? = exchanges.mapIndexedNotNull { i, ex ->
+    if (ex.status.isActive()) ex.steers.firstOrNull { key == "m$i-${it.id}" && it.state.unconsumed && !it.remote } else null
+}.firstOrNull()
 
 private fun ExchangeStatus.isActive() =
     this !is ExchangeStatus.Done && this !is ExchangeStatus.Failed && this !is ExchangeStatus.Cancelled
@@ -1003,6 +1030,7 @@ internal fun Composer(
     /** 要随下一句话发出去的引用;有时输入框上方一张小条,× 去掉。 */
     quote: QuoteMessage.Quote? = null,
     onRemoveQuote: () -> Unit = {},
+    editRequest: Int = 0,
     /** 输入栏后面那层内容的画面;为 null 时输入栏不做模糊、用不透明底。 */
     backdrop: GlassBackdrop? = null,
     reduceMotion: Boolean = false,
@@ -1018,6 +1046,13 @@ internal fun Composer(
     val ime = WindowInsets.ime
     val nav = WindowInsets.navigationBars
     var panel by rememberSaveable { mutableStateOf(Panel.Closed) }
+    LaunchedEffect(editRequest) {
+        if (editRequest > 0) {
+            panel = Panel.Closed
+            field.requestFocus()
+            keyboard?.show()
+        }
+    }
     // 面板和键盘一样高:记下见过的键盘高度(在导航栏之上的那段),没见过时用默认高度
     var keyboardPx by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(ime, nav, density) {

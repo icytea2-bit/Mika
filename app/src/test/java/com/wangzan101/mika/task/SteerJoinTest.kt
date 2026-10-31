@@ -42,4 +42,27 @@ class SteerJoinTest {
         assertEquals(listOf("光合作用是……的过程。", null), after.map { it.finished })
         assertEquals(listOf(null, null), after.map { it.interrupted })
     }
+
+    @Test fun remoteStatusExcludesLocalMessagesAndDistinguishesReceiptConsumptionAndDiscard() {
+        val local = SteerNote("local", "phone-only text", SteerState.Joined)
+        val remote = SteerNote("remote", "only today", SteerState.Received, remote = true)
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "received")), remoteSteers(listOf(local, remote)))
+        val joined = SteerJoin().joined(listOf(local, remote), "remote")
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "joined")), remoteSteers(joined))
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "not_applied")),
+            remoteSteers(listOf(remote.copy(state = SteerState.Cancelled))))
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "not_applied")),
+            remoteSteers(listOf(local, remote), finished = true))
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "joined")),
+            remoteSteers(joined, finished = true))
+    }
+
+    // 远程插话本来撤不回;万一是撤回状态也只报没用上,不多出一种对外状态;手机上撤回的不报给电脑
+    @Test fun withdrawnMapsToNotAppliedAndLocalWithdrawalsStayHidden() {
+        val remote = SteerNote("remote", "only today", SteerState.Withdrawn, remote = true)
+        val local = SteerNote("local", "phone-only text", SteerState.Withdrawn)
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "not_applied")), remoteSteers(listOf(local, remote)))
+        assertEquals(listOf(com.wangzan101.mika.core.remote.RemoteSteer("remote", "not_applied")),
+            remoteSteers(listOf(local, remote), finished = true))
+    }
 }

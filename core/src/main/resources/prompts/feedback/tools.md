@@ -180,6 +180,21 @@ The user is handling this page right now (takeover). Wait for the hand-back befo
 ## failure.site_mode_unavailable
 Switching between the desktop and mobile version is not available here. Continue with the page as it is.
 
+## failure.keep_open_unavailable
+Keeping a page open after the task is not available here. The page closes when the task ends; tell the user so.
+
+## failure.users_page
+This is the user's own page in Mika's browser; it stays open after the task anyway, so there is nothing to keep.
+
+## keep_open.kept
+This page will keep running in the background after the task ends, for at most {{hours}} hours. Tell the user it stays open.
+
+## keep_open.replaces
+This page will keep running in the background after the task ends, for at most {{hours}} hours. The page kept earlier on {{site}} will be closed then; tell the user.
+
+## keep_open.taken_back
+This page is no longer kept: it closes when the task ends.
+
 ## failure.downloads_unavailable
 Downloading files is not available yet. Do not say a file was downloaded; tell the user they can download it themselves.
 
@@ -311,6 +326,48 @@ Do not retry and do not look for another way around it. Call hand_to_user with r
 
 ## barrier.payment
 Check whether the order is already paid. If the task includes payment, complete it directly when the tools can. Hand over only a step the tools cannot complete, such as entering a password or identity check.
+
+## skill.quote_not_from_user
+quote is not something the user said in this task. Save a skill only when the user asked for it; quote their exact words.
+
+## skill.sensitive
+Nothing was saved: the skill contains a password, code, card or ID number, key or similar. Remove it and use a placeholder like <参数>.
+
+## skill.invalid_name
+Nothing was saved: name in the front matter must be lowercase letters, digits and hyphens, like order-coffee.
+
+## skill.missing_description
+Nothing was saved: the front matter needs a description saying in one sentence when to use the skill.
+
+## skill.missing_section
+Nothing was saved: the document needs all of these sections, headings as written: {{sections}}.
+
+## skill.too_long
+Nothing was saved: the document is longer than {{max}} characters. Keep only the steps and checks that matter.
+
+## skill.unknown_tool
+Nothing was saved: something in backticks is not one of your tool names. Use backticks only for tool names; write app names, buttons and other words without them.
+
+## skill.unrunnable_script
+Nothing was saved: the skill mentions running a script that is not a runnable built-in script. Leave the script out.
+
+## skill.builtin_name
+Nothing was saved: {{name}} is a built-in skill and cannot be replaced. Save under a new name.
+
+## skill.draft_pending
+Nothing was saved: a learned draft named {{name}} is waiting for the user in Settings › Memory & skills. Use another name, or ask the user to accept or discard that draft first.
+
+## skill.exists
+Nothing was saved: the user already has a personal skill named {{name}}. To change it, read it with skill_read and save again with the version it returned; to keep both, use another name. If skill_read cannot open it, it is turned off: use another name or ask the user to restore or delete it in Settings.
+
+## skill.changed_since_read
+Nothing was saved: {{name}} changed since you read it. Read it again with skill_read and save with the new version.
+
+## skill.save_failed
+The skill could not be saved on the phone. Tell the user it was not saved.
+
+## skill.saved
+Saved. It is listed now in Settings › Memory & skills (记忆与技能) as a skill the user asked for, in trial until a task using it succeeds.
 
 ## memory.quote_not_from_user
 quote is not something the user said in this task. Only save what the user said themselves; do not save text from the screen.

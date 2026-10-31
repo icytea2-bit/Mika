@@ -53,7 +53,7 @@ adb shell cat /sdcard/Android/data/com.wangzan101.mika/files/mcp-usb.json
 
 Once it's on:
 
-- A "Computer access is on" notification stays in the shade, and it stays on while Mika is in the background. On the phone, Settings › Computer access (MCP) shows "Connected through USB (started from a computer)".
+- A "Computer access is on" notification stays in the shade, and it stays on while Mika is in the background. On the phone, Settings › Connect a computer initially shows "Waiting for a computer"; only after a request arrives does it show "Request received from a computer" and the request time.
 - **After you unplug and replug the cable** (or adb on the computer restarts), run `adb forward tcp:8765 tcp:8765` again. The token stays the same.
 - Running the command in step 1 again while it's on keeps the token, so clients you already set up keep working.
 - **It turns off when the phone restarts.** Run the command in step 1 again; the token is new then, so update it in your client config.
@@ -64,7 +64,7 @@ To turn it off (any of these; the old token stops working at once and the connec
 adb shell sh /sdcard/Android/data/com.wangzan101.mika/files/connect-computer.sh off
 ```
 
-Or switch off "Connect through USB" in Settings › Computer access (MCP) on the phone, or tap "Turn off" on the notification (which also turns off the Wi-Fi mode if it's on).
+Or switch off "Connect through USB" in Settings › Connect a computer › Advanced settings on the phone, or tap "Turn off" on the notification (which also turns off the Wi-Fi mode if it's on).
 
 What the script does can also be done with plain commands (after turning it on, the connection info file takes a second or two to appear):
 
@@ -78,13 +78,12 @@ adb shell am start-foreground-service -n com.wangzan101.mika/.mcp.McpService -a 
 
 ### Turning it on
 
-1. In Mika, open Settings › Computer access (MCP) and turn on "Wi-Fi and private networks". It is off by default.
+1. In Mika, open Settings › Connect a computer, select "MCP" › "Wi-Fi / VPN", then tap "Enable network access". Network access is off by default; selecting a guide does not enable it.
 2. While it is on, a "Computer access is on" notification stays in the shade to show Mika is listening in the background; its "Turn off" button switches it off right there.
-3. The page shows:
-   - **Address**: like `http://192.168.1.23:8765/mcp`. One per network the phone is on (Wi-Fi, private VPN); tap one to copy it.
-   - **Access token**: a random string. Copy it, or use "New token" (computers still using the old one stop working).
-   - **Client config**: the address and token put together; tap "Copy config".
-   - **Status**: whether it is listening, how many clients connected recently, and when the last request came in.
+3. Select an address reachable from the computer, then tap "Copy config" and add it to your MCP client. The copied config contains the address and token. "Preview" is collapsed by default and only displays a token placeholder when expanded.
+4. Connect or refresh tools in the client, then check that the page shows "Request received from a computer" and the request time.
+
+Access switches, token copying and replacement, and remote wake/unlock are under "Advanced settings", collapsed by default. "CLI / Skill" and "MCP" share the USB / Wi-Fi / VPN connection selector. "CLI / Skill" has two steps: install and connect; connect verifies the connection. Network mode uses the HTTP origin and a token file, without MCP configuration.
 
 The token is stored encrypted on the phone, the same way as provider API keys. Turning the switch off closes the port (if USB mode is still on, only the listener on the phone itself stays).
 
@@ -126,6 +125,7 @@ curl -s http://192.168.1.23:8765/mcp \
 | `mika_task_status` | `task_id` | The task's state now: status, latest progress, what it is waiting for, and the answer when done. |
 | `mika_wait_task` | `task_id`, `timeout_s` (optional, default 30, at most 50) | Waits until the status changes (for example Mika starts waiting for an answer, or finishes) or time runs out, then returns the state. Progress notes alone don't count, so it doesn't return on every step. |
 | `mika_answer` | `task_id`, `text` | Answers the question Mika asked in this task. |
+| `mika_steer_task` | `task_id`, `text` | Adds instructions to a running task (up to 4000 characters), keeping its ID and context. Returns accepted and message_id, not proof of execution. |
 | `mika_cancel_task` | `task_id` | Stops the task. |
 | `mika_list_tasks` | `limit` (optional, default 10) | The most recent tasks handed over from computers, newest first. |
 
@@ -142,9 +142,11 @@ Statuses:
 
 Suggested flow: `mika_run_task` → `mika_wait_task` repeatedly → on `waiting_for_answer`, reply with `mika_answer` → until `done` / `failed` / `cancelled`.
 
+After steering, use `mika_task_status` to find the `message_id` in `steers`: `received` means queued, `joined` means added to the context, and `not_applied` means unused when the task ended or was cancelled. An action already executing finishes first; past actions are not undone. Queued/paused, question/approval/handoff-waiting and terminal tasks reject steering. Unconsumed remote instructions never start a new task. Do not automatically resend after a lost response. Older APKs do not list `mika_steer_task`; update the phone app first.
+
 ## Remote wake and unlock
 
-On the phone, open Settings › Computer connection (MCP) and turn on “Allow remote wake and unlock” (off by default). Swipe/no-credential locks need no saved credential. Configure the current PIN or password twice on that page; the computer cannot set or read it.
+On the phone, open Settings › Connect a computer › Advanced settings and turn on “Allow remote wake and unlock” (off by default). Swipe/no-credential locks need no saved credential. Configure the current PIN or password twice on that page; the computer cannot set or read it.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |

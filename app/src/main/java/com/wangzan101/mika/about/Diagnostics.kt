@@ -6,6 +6,7 @@ import com.wangzan101.mika.core.shell.BuiltinShellStatus
 import com.wangzan101.mika.core.shell.PairingDiscovery
 import com.wangzan101.mika.core.shell.PhoneSetupFlow
 import com.wangzan101.mika.core.shell.A11yLossRecord
+import com.wangzan101.mika.core.shell.HelperRestart
 import com.wangzan101.mika.core.shell.HelperRestoreReport
 import com.wangzan101.mika.core.shell.RecoveryCapability
 import com.wangzan101.mika.core.shell.RecoveryConsent
@@ -81,6 +82,8 @@ data class DiagnosticsSnapshot(
         val chatGptSignedIn: Boolean,
         /** 这次运行以来最近一次用 ChatGPT 登录失败(说明已脱敏);没有为 null。 */
         val chatGptLastFailure: ChatGptSignInFailureRecord? = null,
+        /** 账号登录(xAI)最近一次登录失败;没有为 null。 */
+        val accountLastFailure: ChatGptSignInFailureRecord? = null,
     )
 
     /** 一个服务商:接口类型、地址(只取主机名)、列过几个模型(没列过为 null)。 */
@@ -141,6 +144,10 @@ object Diagnostics {
             line("ChatGPT last sign-in failure", "${ago(s.generatedAtMs - f.atMs)}: ${f.kind}" +
                 (f.code?.let { " (code $it)" } ?: "") + f.detail.takeIf { it.isNotBlank() }?.let { " — ${it.take(MAX_ERROR)}" }.orEmpty())
         }
+        m.accountLastFailure?.let { f ->
+            line("account last sign-in failure", "${ago(s.generatedAtMs - f.atMs)}: ${f.kind}" +
+                (f.code?.let { " (code $it)" } ?: "") + f.detail.takeIf { it.isNotBlank() }?.let { " — ${it.take(MAX_ERROR)}" }.orEmpty())
+        }
 
         section("Recent runs")
         if (s.runs.isEmpty()) appendLine("none")
@@ -163,6 +170,11 @@ object Diagnostics {
         val p = s.phone
         val view = PhoneSetupFlow.view(i)
         line("helper", shell(i.status))
+        line("helper restart", when (i.restart) {
+            HelperRestart.Wireless -> "wireless debugging (paired)"
+            HelperRestart.UsbCommand -> "USB start command"
+            HelperRestart.None -> "not set up"
+        })
         line("setup", "phase=${view.phase}" + (view.current?.let { ", current=${step(it)}" } ?: ""))
         line("steps", SetupStep.entries.joinToString(", ") { "${it.ordinal + 1} ${view.marks[it]}" })
         view.suspect?.let { line("suspect", step(it.step) + if (it.unreadable) " (switch unreadable)" else "") }

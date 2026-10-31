@@ -5,7 +5,7 @@
 <a href="https://github.com/wangzan101/Mika/stargazers"><img src="https://img.shields.io/github/stars/wangzan101/Mika?style=flat&logo=github&label=Star&color=1f6feb" alt="stars" /></a>
 <a href="https://github.com/wangzan101/Mika/releases"><img src="https://img.shields.io/github/downloads/wangzan101/Mika/total?label=%E4%B8%8B%E8%BD%BD&color=2ea043" alt="downloads" /></a>
 <a href="https://github.com/wangzan101/Mika/releases/latest"><img src="https://img.shields.io/github/v/release/wangzan101/Mika?include_prereleases&label=%E7%89%88%E6%9C%AC" alt="version" /></a>
-<img src="https://img.shields.io/badge/Android-12%2B-3DDC84?logo=android&logoColor=white" alt="android" />
+<img src="https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white" alt="android" />
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license" /></a>
 <a href="https://x.com/wangzan101"><img src="https://img.shields.io/badge/X-%40wangzan101-000000?logo=x&logoColor=white" alt="X @wangzan101" /></a>
 
@@ -16,7 +16,7 @@
 
 <h3><a href="https://github.com/wangzan101/Mika/releases/latest">⬇ 下载 Mika（安卓 APK）</a></h3>
 
-[安装](#安装) · [快速开始](#快速开始) · [能做什么](#能做什么) · [常见问题](#常见问题) · [参与贡献](#参与贡献)
+[安装](#安装) · [电脑 CLI / Skill](docs/computer-install.md) · [快速开始](#快速开始) · [能做什么](#能做什么) · [常见问题](#常见问题) · [参与贡献](#参与贡献)
 
 </div>
 
@@ -25,8 +25,8 @@
 **方式一：在手机上自己装**
 
 1. 从 [Releases](https://github.com/wangzan101/Mika/releases/latest) 下载最新的 APK，安装。
-2. 打开 Mika 设置里的「设置手机操作」向导，配对一次无线调试（[设置指南](docs/setup-guide.md)）。
-3. 在设置里的「模型」添加服务商、填 API Key，或者用 ChatGPT 登录。
+2. 需要操作手机 App 时，打开 Mika 设置里的「设置手机操作」向导，配对一次无线调试（[设置指南](docs/setup-guide.md)）。只用聊天、网页和文件时可跳过。
+3. 在设置里的「模型」添加服务商、填 API Key，或者用 ChatGPT、xAI、OpenRouter 账号登录。
 
 每一步的细节见下文的[快速开始](#快速开始)。
 
@@ -40,20 +40,30 @@
 
 它会检查手机、下载安装、打开需要的权限，需要你在手机上点的时候会停下来告诉你。API Key 由你自己在 Mika 里填，不经过它。
 
-**装好之后：让电脑上的 AI 工具直接用 Mika（MCP）**
+**装好之后：从电脑使用 Mika（CLI + Skill 或 MCP）**
 
-手机用数据线连着电脑，在电脑上运行：
+**通常二选一：CLI + Skill 或 MCP，无需两套都配置。** 手机 APK 是两者的共同前提；需要同时接入不同客户端时，也可以并用。
+
+**CLI + Skill**：适合支持 Skill、能执行命令的电脑 Agent。Skill 自带 CLI 脚本，无需另装全局 CLI 或配置 MCP；只在终端或脚本里使用时，单独装 CLI 即可。安装、升级和卸载见[电脑端 CLI / Skill 指南](docs/computer-install.md)。
+
+**使用 MCP 客户端：通过 USB 快速连接**
+
+电脑需要装好 adb，手机至少打开过一次 Mika，并已授权这台电脑的 USB 调试。用数据线连接后，在电脑上运行：
 
 ```
 adb shell sh /sdcard/Android/data/com.wangzan101.mika/files/connect-computer.sh
 adb forward tcp:8765 tcp:8765
 ```
 
-第一条会打开 Mika 的电脑连接，并打印连接信息（地址 `http://127.0.0.1:8765/mcp` 和令牌）；把它们填进电脑上 AI 工具的 MCP 配置，它就能给 Mika 派任务、查进度、拿结果。手机上不用点；只经数据线连接、要令牌，Wi-Fi 上连不到；付款这类确认只能在手机上点。用方式二安装时，AI 助手会顺手帮你接好。详见[电脑连接说明](docs/mcp.md)。
+第一条会打开 USB 方式的电脑连接，并打印连接地址和令牌。在 AI 工具中添加一个 Streamable HTTP 类型的 MCP 服务器，地址为 `http://127.0.0.1:8765/mcp`，请求头为 `Authorization: Bearer <令牌>`。配置完成后，就能给 Mika 派任务、查进度、拿结果。
+
+USB 接入经 ADB 转发并使用令牌验证；直接经 Wi-Fi 或私有网络连接，需要在手机上另行开启，见[电脑连接说明](docs/mcp.md)。付款这类确认仍只能在手机上处理。
+
+用方式二安装时，如果你也要求电脑访问，AI 助手会按你选择的接入方式继续配置。
 
 > **English summary**
 >
-> Mika is an Android app that takes a one-sentence request and carries it out on your phone. It drives apps on a private background screen (so you can keep using your phone), browses the web in a built-in desktop-class browser, and runs scripts in a local Linux sandbox. You bring your own model API key (several providers are supported as presets, plus any OpenAI-compatible, Anthropic, Gemini or OpenAI Responses endpoint). There is no Mika server: your requests go only to the model provider you configure.
+> Mika is an Android app that takes a one-sentence request and carries it out on your phone. It drives apps on a private background screen (so you can keep using your phone), browses the web in a built-in desktop-class browser, and runs scripts in a local Linux sandbox. You can use your own model API key (several providers are supported as presets, plus any OpenAI-compatible, Anthropic, Gemini or OpenAI Responses endpoint), or sign in with a ChatGPT, xAI or OpenRouter account. There is no Mika server: your requests go only to the model provider you configure.
 >
 > Status: **public beta**, changing quickly (see [Releases](https://github.com/wangzan101/Mika/releases) for versions and changes). Chat, web and sandbox tasks work on Android 11+; phone app control needs Android 12+, with Android 14+ recommended. The sandbox runs on arm64 devices only. The app UI is available in Simplified Chinese, Traditional Chinese and English (follows your system language; switch in Settings › Language); see the [full English README](README.en.md). Licensed under Apache-2.0.
 
@@ -126,6 +136,7 @@ adb forward tcp:8765 tcp:8765
 ### 随时插话、随时停
 
 - 任务进行中可以继续说话，补充或更正要求，Mika 在下一步之前读到。
+- 长按任务中已发送、模型还没处理的消息，可以撤回或取回编辑；编辑会保留原来的引用，输入框已有草稿时不提供编辑。
 - 按停止后，Mika 会补几行交代：做了什么、看到了什么、发出了几次、哪些没做完。下次说「继续」它知道从哪接着做。
 
 ### 询问 / 自主
@@ -148,7 +159,7 @@ adb forward tcp:8765 tcp:8765
 |---|---|
 | **App** | Android 设置、百家号、哔哩哔哩、BOSS直聘、Chrome、得到、抖音、飞书、Gmail、即刻、快手、领英、QQ邮箱、Telegram、今日头条、Uber、Uber Eats、微信、微博、WhatsApp、闲鱼、小红书、知乎 |
 | **网站** | Amazon、哔哩哔哩、Google Calendar、豆瓣、抖音、Instagram、Gmail、Google Maps、Telegram、百度贴吧、微博、搜狗微信、WhatsApp、小红书、小宇宙、YouTube、知乎、BOSS直聘 |
-| **通用做法**（技能） | 把内容整理成文字、处理 PDF 文档、查清一件事、消息与邮件 |
+| **通用做法**（技能） | 把内容整理成文字、处理 PDF 文档、查清一件事、消息与邮件、写技能 |
 <!-- generated:knowledge:end -->
 
 ### 成批的事
@@ -167,9 +178,9 @@ adb forward tcp:8765 tcp:8765
 
 ### 电脑上的 AI 工具也能用（CLI / MCP）
 
-手机连着电脑时，电脑上的 AI 工具可以通过 MCP 把任务交给 Mika，在手机上办完把结果拿回去。一条命令打开，只经数据线、要令牌；也可以在设置里打开局域网连接（默认关）。见[电脑连接说明](docs/mcp.md)。
+电脑上的 AI 工具可以通过 **CLI + Skill 或 MCP** 把任务交给 Mika、查进度并拿回结果，通常选一种即可。两种入口共用手机任务服务；只在终端或脚本里使用时，也可单独安装 CLI。
 
-也可以安装[电脑端 CLI 与 Agent Skill](docs/cli.md),用 `mika connect`、`mika task run`、`mika task wait` 完成连接和任务交接。CLI 与 MCP 并列接入同一份手机任务服务,CLI 不需要配置 MCP;需要包含任务 API v1 的 APK。
+选择 CLI / Skill，见[安装与维护指南](docs/computer-install.md)；选择 MCP，见[电脑连接说明](docs/mcp.md)。连接方式有 USB 快速连接，以及需要在手机上另行开启的 Wi-Fi／私有网络连接。
 
 ## 快速开始
 
@@ -181,13 +192,15 @@ adb forward tcp:8765 tcp:8765
 | 操作手机 App | 安卓 12 及以上；安卓 12、13 上后台操作可能影响主屏焦点 |
 | 推荐 | 安卓 14 及以上：后台屏有自己的焦点，不影响你在主屏打字；不同对话的任务同时进行也需要它 |
 | Linux 沙箱 | 仅 arm64 设备；其他设备照常安装，沙箱显示「此设备不支持」 |
-| 模型 | 一个支持工具调用的大模型 API Key |
+| 模型 | 支持工具调用的模型，可通过服务商 API、本地服务或账号登录配置，见[添加模型](#4-添加模型) |
 
 ### 1. 下载安装
 
 从 [Releases](https://github.com/wangzan101/Mika/releases/latest) 下载最新的 APK 安装。
 
 ### 2. 无障碍（可以先跳过）
+
+第 2、3 步用于手机 App 操作（安卓 12+）。只用聊天、网页和文件时，直接到第 4 步添加模型。
 
 Mika 靠无障碍读界面、做点按。不用手动去开：下一步配对成功后，Mika 会自己把它打开。从 GitHub 下载安装的 App，手动打开无障碍时常被系统拦下（提示「受限制的设置」），让 Mika 自己开能省掉这个麻烦。向导里到这一步时选「跳过」即可。
 
@@ -201,8 +214,6 @@ Mika 靠无障碍读界面、做点按。不用手动去开：下一步配对成
 
 手边有电脑和数据线的话，也可以不配对：先打开一次 Mika，插着线在电脑上运行 `adb shell sh /sdcard/Android/data/com.wangzan101.mika/files/usb-start.sh` 启动手机助手；但每次重启手机后都要再运行一次。这些也可以交给电脑上的 AI 助手，见[用电脑上的 AI 助手安装](docs/install-with-agent.md)。
 
-只用上网、文件和聊天的话，这一步可以先跳过。
-
 ### 4. 添加模型
 
 打开设置里的「模型」（第一次打开 App 时也会引导你）。
@@ -212,7 +223,13 @@ Mika 靠无障碍读界面、做点按。不用手动去开：下一步配对成
 内置 DeepSeek、通义千问、Kimi、智谱、硅基流动、火山方舟、MiniMax、阶跃星辰、腾讯混元、百度千帆、OpenRouter、OpenCode Go、Anthropic、Gemini、OpenAI、xAI、Mistral、Groq、Ollama、LM Studio 等服务商预设；其他服务商选「自定义」，OpenAI 兼容、Anthropic、Gemini、OpenAI Responses 接口都能接。
 <!-- generated:providers:end -->
 
-也可以不填 Key，直接用 ChatGPT 登录（Plus 或 Pro，用你的套餐额度）：在添加服务商那里点「使用 ChatGPT 继续」，在浏览器里登录后回到 Mika。
+也可以不填 Key，用账号登录：添加服务商最上面是「用账号登录 · 不用填 Key」一组，点一家先看说明，再去浏览器里登录，登录后回到 Mika，能看到账号、可用的模型，可以直接设为主模型。
+
+- **ChatGPT**（Plus 或 Pro，用你的套餐额度）：点「使用 ChatGPT 继续」，在浏览器里登录。
+- **xAI / Grok**（SuperGrok 或 X Premium+ 订阅）：浏览器里打开 xAI 的确认页，核对手机上显示的短码后同意。这项登录借用 xAI 官方命令行工具的公开登录入口，不是 xAI 专门给 Mika 开的，xAI 可能限制这种用法；有的订阅档位登录后仍不能调用（提示 403），那时改用 xAI 的 API Key。
+- **OpenRouter**：OpenRouter 官方给第三方应用的授权。同意后 OpenRouter 给 Mika 一把属于你的 Key（名字是 Mika），用量从你的 OpenRouter 余额里扣；不想用了，在 OpenRouter 的 Keys 页面删掉它。
+
+退出登录只清这台手机上的登录信息。
 
 1. 添加服务商：选一个预设，或选「自定义」填接口地址；填 API Key。Ollama、LM Studio 这类自己机器上跑的服务，地址预填了默认端口，改成那台机器的地址即可，Key 可不填。
 2. 点「测试并保存」，连上第一家时会自动选一个主模型。
@@ -333,8 +350,8 @@ CLI 测试另需 Python 3.10+,可用 `-PmikaPython=/path/to/python3` 指定解�
 
 <a href="https://star-history.com/#wangzan101/Mika&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261031-1751" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261031-1751" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261101-0403" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261101-0403" width="600" />
   </picture>
 </a>
 

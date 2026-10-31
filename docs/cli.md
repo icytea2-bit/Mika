@@ -22,24 +22,15 @@ flowchart LR
     CLI -->|"HTTP，可经 ADB 转发"| API
 ```
 
-## 安装
+## 安装与维护
 
-需要 Python 3.10+ 和包含任务 API v1 的 Mika APK。旧 APK 只有 MCP 时,CLI 会明确提示不兼容。此功能随源码构建提供,不能仅凭已有 MCP 能力判断某个已发布 APK 支持它。
+安装、升级、回退和卸载见 [CLI / Skill 安装指南](computer-install.md)。CLI 与 MCP 通常二选一。手机需要 task API v1,官方 APK 从 v0.1.23 起提供。
 
-在仓库根目录使用 pipx 安装,或在自己的 Python 虚拟环境里使用 pip:
-
-```bash
-pipx install ./tools/mika
-# 或在已激活的虚拟环境中:
-python3 -m pip install ./tools/mika
-mika --help
-```
-
-也可以直接运行 `python3 tools/mika/scripts/mika_cli.py --help`,不安装 Python 依赖。将整个 `tools/mika/` 目录复制到支持 Skills 的 Agent 的技能目录,并命名为 `mika`,即可安装电脑端 Skill。该目录带齐脚本和许可,单独复制后可运行;不依赖手机内部技能目录或另一个仓库检出。
+只装 Skill 时,下面的 `mika` 代表 `python3 <技能目录>/mika/scripts/mika_cli.py`（Windows 用 `py -3`）。
 
 ## 连接手机
 
-ADB 模式需要 Android platform-tools。数据线或已经配对并连接的无线 ADB 都可以;无线连接尚未出现在 ADB 中时,先按手机的无线调试页面完成配对/连接。
+ADB 模式需要 Android platform-tools。数据线或已经配对并连接的无线 ADB 都可以；无线 ADB 需要这台电脑与手机完成配对、连接，并在 `adb devices` 中显示为 `device`。Mika 在手机内为启动助手完成的配对，不等于电脑已配对；它们也不同于下面的直接局域网访问。
 
 ```bash
 mika devices --json
@@ -50,6 +41,8 @@ mika doctor --device SERIAL --json
 只有一个在线设备时可省略 `--device`;也支持已有的 ANDROID_SERIAL 环境变量。多设备不猜目标,连接失败也不切换到另一台手机。`connect` 调用 Mika 写到手机上的官方启动脚本,打开电脑连接并启动所需助手;此动作不提交业务任务。其余命令只读取当前连接。
 
 每次调用重新读取当前令牌、端口和开机编号,申请自己的 `adb forward tcp:0` 临时端口,完成后只删除该转发。令牌只保存在进程内存中,启动脚本的原始输出不转发到终端。CLI 退出不关闭手机服务,也不停止正在执行的任务。
+
+CLI 会处理端口转发，无需照 MCP 步骤手工转发固定端口。拔插后先让同一台手机重新出现在 ADB 中；手机重启或电脑连接开关被关闭后，再运行 `connect`。
 
 也可以使用手机设置里显式开启的局域网/私有网络连接:
 
@@ -66,6 +59,7 @@ mika --device SERIAL task run --goal-file task.txt --json
 mika --device SERIAL task status TASK_ID --json
 mika --device SERIAL task wait TASK_ID --timeout 45 --json
 mika --device SERIAL task answer TASK_ID --text-file answer.txt --json
+mika --device SERIAL task steer TASK_ID --text "补充一下，只整理今天的消息" --json
 mika --device SERIAL task cancel TASK_ID --json
 mika --device SERIAL task list --limit 10 --json
 ```
@@ -73,6 +67,10 @@ mika --device SERIAL task list --limit 10 --json
 简单文本也可用 `--goal` / `--text`;文件参数为 `-` 时读取标准输入。`run --conversation CONVERSATION_ID` 创建同一远程对话中的下一项任务,`answer` 只回答当前追问。保留现有对话的 mcp- 前缀以兼容已经发出的 ID;这个历史前缀不代表 CLI 走 MCP 协议。
 
 `run` 返回任务 ID 即结束。`wait` 一次最多等待 50 秒,状态变化或任务结束时返回;如果已经在等回答或手机接管,立即交回。预算用完仍返回当前状态,不判失败、不取消、不重新提交。取消返回的 `accepted` 只表示请求已交给任务服务;必须查询到 cancelled 才能报告已经取消。
+
+`steer` 向 `running` 的远程任务追加要求,保留同一个任务 ID 和上下文;也支持 `--text-file`(文件或 `-` 标准输入)。最多 4000 字符。返回 `accepted: true` 与 `message_id` 只表示收件箱已接收;用 `status` 查询 `steers` 中这条消息的 `state`: `received` 为已收到,`joined` 为已加入当前任务上下文,`not_applied` 为结束或取消前未用上。`joined` 不表示要求已经执行成功。正在执行的动作会先做完,追加要求不会撤销已做的事。
+
+排队、暂停、追问、手机接管和终态任务拒绝追加(409);追问用 `answer`,接管/审批在手机上处理。任务结束竞态也不会把追加要求转成新任务。响应丢失时不要重复发送;查询同一任务,没有收到消息编号且无法确认时照实报告不确定。此入口需要 APK 的 `task_steer` 能力;旧 APK 会提示升级,不回退成新任务。
 
 `--json` 将成功结果和错误都作为单个 JSON 对象写入 stdout;默认输出缩进 JSON,错误写入 stderr。连接选项和 `--json` 可以写在命令前后。可用 `--request-timeout` 调整 HTTP 超时;等待请求的读取预算至少是任务等待时间加 5 秒。
 
@@ -101,6 +99,7 @@ mika --device SERIAL task list --limit 10 --json
 | GET /tasks/ID | 当前任务状态。 |
 | POST /tasks/ID/wait | timeout_s 范围 1–50,默认 30;返回状态与 changed。 |
 | POST /tasks/ID/answer | text;返回 task_id 与 accepted。 |
+| POST /tasks/ID/steer | text;202 返回 task_id、message_id 与 accepted。只接受 running 任务。 |
 | POST /tasks/ID/cancel | 空对象;接受时 202,终态任务 200,返回 accepted。 |
 
 业务校验失败为 400,任务不存在为 404,当前状态不能回答为 409,任务服务拒绝启动为 503。认证、来源和限流策略与 `/mcp` 共用。两种入口使用同一远程任务索引;持有同一访问权限的客户端可以跨入口查询和操作远程任务,仍不能访问手机本地发起的任务。
