@@ -189,7 +189,7 @@ class ResponsesModel(
         "context_length_exceeded" -> ModelError.ContextTooLong()
         "insufficient_quota" -> ModelError.QuotaExceeded()
         "rate_limit_exceeded" -> if (chatGptPlan) ModelError.ChatGptLimitReached() else ModelError.RateLimited(null)
-        "model_not_found" -> ModelError.ModelNotFound(model)
+        "model_not_found" -> ModelError.ModelNotFound(model, ModelAccessErrors.clip(message))
         "server_error" -> ModelError.Server(500)
         else -> null
     }
@@ -204,7 +204,7 @@ class ResponsesModel(
             status == 429 -> if (chatGptPlan) ModelError.ChatGptLimitReached() else ModelError.RateLimited(HttpSupport.retryAfterMs(retryAfter))
             status == 402 -> ModelError.QuotaExceeded()
             status == 400 && (body.contains("context_length") || body.contains("maximum context")) -> ModelError.ContextTooLong()
-            status == 404 -> ModelError.ModelNotFound(model)
+            status == 404 -> ModelError.ModelNotFound(model, ModelAccessErrors.jsonDetail(body))
             status in 500..599 -> ModelError.Server(status)
             else -> ModelError.BadResponse("HTTP $status ${body.take(200)}")
         }
@@ -323,6 +323,8 @@ private class ResponsesStream(
         fun int(o: JsonObject?, k: String) = (o?.get(k) as? JsonPrimitive)?.intOrNull
         val input = int(u, "input_tokens") ?: return null
         val cached = int(u["input_tokens_details"] as? JsonObject, "cached_tokens") ?: 0
-        return Usage(input, int(u, "output_tokens") ?: 0, cached.coerceAtMost(input))
+        val output = int(u, "output_tokens") ?: 0
+        val reasoning = (int(u["output_tokens_details"] as? JsonObject, "reasoning_tokens") ?: 0).coerceIn(0, output)
+        return Usage(input, output, cached.coerceAtMost(input), reasoning)
     }
 }

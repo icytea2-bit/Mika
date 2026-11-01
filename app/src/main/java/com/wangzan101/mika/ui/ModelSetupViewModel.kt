@@ -25,6 +25,10 @@ import com.wangzan101.mika.settings.ChatGptSignIns
 import com.wangzan101.mika.settings.AccountOutcome
 import com.wangzan101.mika.settings.DevicePrompt
 import com.wangzan101.mika.settings.SignInTarget
+import com.wangzan101.mika.voice.SpeechChoice
+import com.wangzan101.mika.voice.SpeechSettings
+import com.wangzan101.mika.voice.SystemCapability
+import com.wangzan101.mika.voice.Transcriber
 import com.wangzan101.mika.core.chatgpt.ChatGptAuth
 import com.wangzan101.mika.core.chatgpt.SignInException
 import com.wangzan101.mika.core.chatgpt.SignInFailure
@@ -101,7 +105,8 @@ interface SignInBrowser {
 
 /**
  * 「添加服务商」表单。[noList] 为真时上次测试没列出模型:要先填 [model](手填的模型名),再测试就用它试调用。
- * [name] 是自定义服务商的名字(只有自定义才填,可不填,见 [providerName])。
+ * [manual] 为真是用户点了「手动填写模型名」(或列模型出错后自动展开):随时都能填,填了就用它试调用,列表有没有、
+ * 列不列得出都不影响。[name] 是自定义服务商的名字(只有自定义才填,可不填,见 [providerName])。
  */
 data class AddForm(
     val preset: String,
@@ -112,7 +117,14 @@ data class AddForm(
     val model: String = "",
     val noList: Boolean = false,
     val name: String = "",
+    val manual: Boolean = false,
 ) {
+    /** 显示「模型名」一栏:没列出模型,或用户要手填。 */
+    val showModel: Boolean get() = noList || manual
+
+    /** 填了的模型名;没显示那一栏时不算。 */
+    val typedModel: String get() = if (showModel) model.trim() else ""
+
     val isCustom: Boolean get() = preset == ProviderPresets.custom.label
 
     /** 跑在用户自己机器上的服务(见 [ProviderPreset.selfHosted]):地址预填了本机的默认端口,要能改成那台机器的。 */
@@ -211,6 +223,11 @@ data class ModelSetupUi(
     val manualPick: Map<String, ListState> = emptyMap(),
     /** 服务商页「重新测试」的进度(按服务商 id)。 */
     val retest: Map<String, ListState> = emptyMap(),
+    /** 语音转文字现在的选择,和这台手机自带识别的能力(给用途卡片和选择页用)。 */
+    val speech: SpeechChoice = SpeechChoice.Auto,
+    val systemSpeech: SystemCapability = SystemCapability(available = false, onDevice = false),
+    /** 正在拿一小段录音试转的服务商 id;没有时为 null。 */
+    val speechTesting: String? = null,
 ) {
     /** 还没有服务商时表单总是展开。 */
     val showForm: Boolean get() = formOpen || providers.isEmpty()
@@ -276,9 +293,19 @@ class ModelSetupViewModel(
     private val browser: SignInBrowser? = null,
     /** 登录跑在哪:界面给的是 App 那一份(退到后台、界面重建都不断,期间开前台服务);测试里就用 [scope]。 */
     private val signIns: ChatGptSignIns = ChatGptSignIns(scope),
+    /** 语音转文字的选择;测试和上手流程不传,卡片就不出现。 */
+    private val speech: SpeechSettings? = null,
+    private val systemSpeech: () -> SystemCapability = { SystemCapability(available = false, onDevice = false) },
+    /** 选语音模型时试转用的转写器,和按住说话用的是同一种建法(带客户端标识头)。 */
+    private val transcriber: (Provider) -> Transcriber = { p -> Transcriber(ProviderStore.modelHttp, store.clientHeaders(p)) },
 ) {
     private val _state = MutableStateFlow(snapshot(ModelSetupUi(AddForm.of(ProviderPresets.all.first()))))
     val state: StateFlow<ModelSetupUi> = _state.asStateFlow()
+
+    private val _speechProbe = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** 服务商 id -> 选它的语音模型时试转没通过的原因(用现有的说法);选通了或重新选时清掉。 */
+    val speechProbe: StateFlow<Map<String, String>> = _speechProbe.asStateFlow()
 
     private var testJob: Job? = null
     private val refreshJobs = mutableMapOf<String, Job>()
@@ -286,6 +313,7 @@ class ModelSetupViewModel(
     init {
         // 别处(开发者选项等)改了存储时跟着更新
         scope.launch { merge(store.providers, store.configs, store.roles).collect { sync() } }
+        speech?.let { s -> scope.launch { s.choice.collect { sync() } } }
         // 登录在别处结束(通知上取消了)或界面重建前就开始了:跟着它的进度
         scope.launch {
             signIns.running.collect { running ->
@@ -350,6 +378,8 @@ class ModelSetupViewModel(
                 store.accountSession(p.id).let { SubscriptionAccount(it?.label.orEmpty(), it?.signedIn == true) }
             },
             openRouterAccount = store.openRouterAccount()?.let { p -> SubscriptionAccount("", store.hasKey(p.id)) },
+            speech = speech?.choice?.value ?: SpeechChoice.Auto,
+            systemSpeech = systemSpeech(),
         )
     }
 
@@ -376,6 +406,9 @@ class ModelSetupViewModel(
     fun setBaseUrl(url: String) = edit { it.copy(baseUrl = url, noList = false) }
     fun setApiKey(key: String) = edit { it.copy(apiKey = key) }
     fun setModel(model: String) = edit { it.copy(model = model) }
+
+    /** 「手动填写模型名」:打开时显示模型名一栏;收起时清掉填的(没列出模型时那一栏一直在)。 */
+    fun setManual(on: Boolean) = edit { it.copy(manual = on, model = if (on || it.noList) it.model else "") }
     // 按字符(码点)截,不把 emoji 截成半个
     fun setName(name: String) = edit {
         val n = name.codePointCount(0, name.length)
@@ -398,7 +431,11 @@ class ModelSetupViewModel(
      *
      * 没列出模型(列表接口不存在,或列出来是空的):可能这家真不提供列表,也可能地址、接口类型填错了,单看列表分不出来。
      * 所以不直接存,要用户填一个模型名([AddForm.noList]),再测试时用它试调用:通了才存成不提供列表的服务商,
-     * 不通说原因、不存。Key 不对等别的列表错误照旧直接说原因。
+     * 不通说原因、不存。
+     *
+     * 手填了模型名([AddForm.typedModel],随时可以点「手动填写模型名」填)就只试这一个:列表列得出、列不出、列表里有没有它都一样,
+     * 列表出了别的错(Key 不对、服务端出错、回的不是 JSON…)也不挡,试调用的结论说了算——Key、地址不对,试调用一样不通。
+     * 没手填时列表出了别的错照旧说原因,并展开模型名一栏:有的服务只是列表接口不好用,填一个模型名还能连上。
      */
     fun testAndSave() {
         val f = _state.value.form
@@ -408,32 +445,40 @@ class ModelSetupViewModel(
         testJob = scope.launch {
             val key = f.apiKey.trim()
             val baseUrl = f.baseUrl.trim()
+            val typed = f.typedModel
             val models = when (val r = withContext(io) { store.listModels(f.kind, baseUrl, key.ifEmpty { null }, f.sessionHeader) }) {
                 is ModelListResult.Ok -> r.models
                 is ModelListResult.Failed -> {
-                    if (r.reason != ListFailure.NotSupported) {
-                        _state.update { it.copy(form = it.form.copy(test = ListState.Failed(r.message))) }
+                    if (r.reason != ListFailure.NotSupported && typed.isEmpty()) {
+                        _state.update { it.copy(form = it.form.copy(test = ListState.Failed(r.message), manual = true)) }
                         return@launch
                     }
                     emptyList()
                 }
             }
-            val typed = f.model.trim()
             if (models.isEmpty() && typed.isEmpty()) {
                 _state.update { it.copy(form = it.form.copy(test = ListState.Idle, noList = true)) }
                 return@launch
             }
-            // 不提供列表:用手填的那个试,和有列表时分开走
-            if (models.isEmpty()) {
-                val caps = (ProviderPresets.forBaseUrl(baseUrl) ?: ProviderPresets.custom).capabilities
-                val outcome = probeModel(f.kind, baseUrl, key.ifEmpty { null }, f.sessionHeader, typed, null, caps, f.exampleKind, listMissing = f.isCustom)
+            // 手填了模型名:只试这一个,列表(有的话)照样存下
+            if (typed.isNotEmpty()) {
+                val listed = models.firstOrNull { it.id == typed }
+                val base = (ProviderPresets.forBaseUrl(baseUrl) ?: ProviderPresets.custom).capabilities
+                val caps = listed?.let { ModelOptions.merge(listOf(it), base).firstOrNull()?.capabilities } ?: base
+                val outcome = probeModel(
+                    f.kind, baseUrl, key.ifEmpty { null }, f.sessionHeader, typed, listed?.endpoint, caps, f.exampleKind,
+                    listMissing = models.isEmpty() && f.isCustom,
+                )
                 if (outcome is ProbeOutcome.Failed) {
                     _state.update { it.copy(form = it.form.copy(test = ListState.Failed(outcome.message))) }
                     return@launch
                 }
                 val noTools = outcome is ProbeOutcome.NoToolCall
                 withContext(io) {
-                    val p = store.connect(f.providerName, f.kind, baseUrl, key, models, f.sessionHeader, setOf(typed))
+                    val p = store.connect(
+                        f.providerName, f.kind, baseUrl, key, models, f.sessionHeader, setOf(typed),
+                        typed = if (listed == null) setOf(typed) else emptySet(),
+                    )
                     if (!noTools && store.roles.value.main == null) use(ModelRole.Main, p, typed, ModelOptions.ofProvider(p, store.list()))
                 }
                 val note = if (noTools) tr(R.string.model_probe_no_tools, typed) else null
@@ -796,8 +841,9 @@ class ModelSetupViewModel(
     }
 
     /**
-     * 选择页里给不提供列表的服务商手填了模型名,或在刚存下、没有一个模型试通过的那家选主模型(见 [ModelSetupUi.probeBeforePick]):
-     * 先试调用一次,通了才用作 [role](记为核实过),然后调 [onPicked];不通说原因、不选。主模型还要会调用工具。
+     * 选择页里给某家手填了模型名(每家都能填:不提供列表的,列表里没有要的),或在刚存下、没有一个模型试通过的那家选主模型
+     * (见 [ModelSetupUi.probeBeforePick]):先试调用一次,通了才用作 [role](记为核实过;列表里没有的记为手填),
+     * 然后调 [onPicked];不通说原因、不选。主模型还要会调用工具。
      */
     fun pickManual(role: ModelRole, providerId: String, model: String, onPicked: () -> Unit = {}) {
         val m = model.trim()
@@ -817,6 +863,8 @@ class ModelSetupViewModel(
             }
             withContext(io) {
                 store.markVerified(p.id, m)
+                // 列表里没有的记为手填:刷新列表不丢,选的时候标出来
+                if (p.models.orEmpty().none { it.id == m }) store.markTyped(p.id, m)
                 store.provider(p.id)?.let { fresh -> use(role, fresh, m, ModelOptions.ofProvider(fresh, store.list())) }
             }
             _state.update {
@@ -826,6 +874,60 @@ class ModelSetupViewModel(
             onPicked()
         }
     }
+
+    // ---------- 语音转文字 ----------
+
+    /** 选「手机自带」或「不用」,当场生效。 */
+    fun pickSpeech(choice: SpeechChoice) {
+        if (choice is SpeechChoice.Provider) return
+        speech?.set(choice)
+        _speechProbe.value = emptyMap()
+        sync()
+    }
+
+    /**
+     * 选某个服务商的语音模型:先拿一小段静音试转(顺便认出该用哪种接口),通了才存成选择并记为核实过,然后调 [onPicked];
+     * 不通就在那一组下面说原因([speechProbe]),不改现在的选择。
+     */
+    fun pickSpeechModel(providerId: String, model: String, onPicked: () -> Unit = {}) {
+        val m = model.trim()
+        val settings = speech ?: return
+        if (m.isEmpty() || _state.value.speechTesting != null) return
+        val p = store.provider(providerId) ?: return
+        _speechProbe.value = _speechProbe.value - providerId
+        _state.update { it.copy(speechTesting = providerId) }
+        scope.launch {
+            val problem = try {
+                val method = withContext(io) {
+                    withTimeout(PROBE_TIMEOUT_MS) { transcriber(p).detect(p, store.providerKey(p.id), m) }
+                }
+                withContext(io) { store.markVerified(p.id, m) }
+                settings.set(SpeechChoice.Provider(p.id, m, method))
+                null
+            } catch (e: TimeoutCancellationException) {
+                tr(R.string.speech_pick_timeout, m, (PROBE_TIMEOUT_MS / 1000).toInt())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ModelError) {
+                speechFailure(m, p, e)
+            } catch (e: Exception) {
+                tr(R.string.speech_pick_failed, e.message.orEmpty())
+            }
+            if (problem != null) _speechProbe.value = _speechProbe.value + (providerId to problem)
+            _state.update { snapshot(it.copy(speechTesting = null)) }
+            if (problem == null) onPicked()
+        }
+    }
+
+    /** 试转没通过的原因:账号没开通、找不到模型用选主模型时同一套说法,其余照服务商回的原话。 */
+    private fun speechFailure(model: String, p: Provider, e: ModelError): String = when (e) {
+        is ModelError.ModelNotAvailable -> tr(R.string.model_probe_not_available, model, e.detail.ifEmpty { e.message.orEmpty() })
+        is ModelError.ModelNotFound -> tr(R.string.model_probe_not_found, model, ModelSetupCopy.modelExample(ProviderPresets.forHost(p.baseUrl)?.kind ?: p.kind))
+        else -> tr(R.string.speech_pick_failed, e.message.orEmpty())
+    }
+
+    /** 选择页打开时,上次试转的结果作废。 */
+    fun clearSpeechProbe() { _speechProbe.value = emptyMap() }
 
     /** 选择页打开时,上次手填试调用的结果作废。 */
     fun clearManualPick() = _state.update { it.copy(manualPick = emptyMap()) }

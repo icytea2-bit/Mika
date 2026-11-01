@@ -2,7 +2,7 @@
 
 [简体中文](features.md) | English
 
-Tell Mika what you want in one sentence, and it gets it done on your phone. This page has the details behind each item under "What it can do" in the [README](../README.en.md).
+Tell Mika what you want in one sentence, and it gets it done on your phone. This page has the details behind each item under "What it can do" in the [README](../README.md).
 
 ## Operates any app without taking over your screen
 
@@ -14,6 +14,7 @@ Any app installed on your phone works, with no per-app integration: Mika looks a
 - Can share a piece of text straight into an app (to send a message or save a note); Mika still picks the recipient and taps send on that page itself.
 - Recognizes the system asking "open with which app", a dual-installed app asking "which one", and one app opening another (e.g. jumping to a payment page). It carries on when it can, and stops to let you act on screen when you need to choose or handle it yourself.
 - Things only you should do (logging in, verification codes, payment) trigger a notification asking you to take over: the app moves to your main screen, you finish and hand it back, and Mika re-checks before continuing.
+- When a task is done, the apps Mika opened stay in the background on the page where it finished: you find them in recent apps, and the next time Mika opens one it continues from there. They never jump in front of what you are doing. An app that is playing sound or video at that moment is closed; say "keep the music playing" or "close it when you're done" and Mika does that instead.
 
 ## Built-in browser
 
@@ -35,8 +36,14 @@ Any app installed on your phone works, with no per-app integration: Mika looks a
 ## Interrupt or stop anytime
 
 - Keep talking while a task runs to add to or correct your request; Mika reads it before its next step.
-- Long-press a message sent during a task to withdraw or edit it before the model picks it up. Editing restores its quote too and is available when the composer has no draft.
+- Long-press a message sent during a task to withdraw or edit it before the model picks it up. Editing restores its quote too and is available when the composer has no draft; a message that carries a screen or text selected on a web page cannot be edited.
 - When you press stop, Mika adds a short wrap-up: what it did, what it saw, how many times it sent something, and what is left. Say "continue" next time and it knows where to pick up.
+
+## Hold to talk
+
+- When you are not typing, hold the chat input to speak. When you let go the words land in the input for you to edit; nothing is sent by itself. While a task runs, sending it adds to the task. Slide up until it says "Let go to cancel" and let go to throw that take away.
+- In other apps, long-press the floating capsule to speak and let go to send it straight to Mika (it adds to a running task, or answers when Mika is asking you). Let go on "Edit" to open the card with the words in its input.
+- By default it uses the phone's built-in speech recognition, which shows words as you speak and costs nothing. If the phone has none, or it is not accurate enough, pick a provider's speech model under Settings › Models › Speech to text; see [models and sign-in](models.en.md#speech-to-text).
 
 ## Ask / Autonomous
 
@@ -50,7 +57,7 @@ Any app installed on your phone works, with no per-app integration: Mika looks a
 
 Even without any instructions, Mika can get things done by looking at the screen. For some apps and websites there is extra usage knowledge (where things are, common ways to do things, what to watch out for), which Mika looks up automatically when it needs it, so it takes fewer wrong turns. For example, in a chat app it already knows how to find a contact and scroll through chat history; on a job site it knows how to filter jobs and greet recruiters. There are also general how-to skills for a few kinds of tasks.
 
-The apps and websites that already have usage knowledge are listed in the collapsed section under "What it can do" in the [README](../README.en.md) (anything not listed still works). The knowledge keeps growing and anyone can add to it: it is plain text under [`core/src/main/resources/knowledge/`](../core/src/main/resources/knowledge/) and [`core/src/main/resources/skills/`](../core/src/main/resources/skills/). [Contributions welcome](../CONTRIBUTING.en.md).
+The apps and websites that already have usage knowledge are listed in the collapsed section under "What it can do" in the [README](../README.md) (anything not listed still works). The knowledge keeps growing and anyone can add to it: it is plain text under [`core/src/main/resources/knowledge/`](../core/src/main/resources/knowledge/) and [`core/src/main/resources/skills/`](../core/src/main/resources/skills/). [Contributions welcome](../.github/CONTRIBUTING.md).
 
 ## Batch jobs
 

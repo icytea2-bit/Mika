@@ -1,5 +1,6 @@
 package com.wangzan101.mika.ui
 
+import com.wangzan101.mika.core.agent.QuoteMessage
 import com.wangzan101.mika.core.cap.web.AttachedPage
 import com.wangzan101.mika.R
 import com.wangzan101.mika.i18n.tr
@@ -90,5 +91,12 @@ object ChatCopy {
         ComposerMode.Busy -> tr(R.string.chat_placeholder_busy)
         ComposerMode.Answer -> tr(R.string.chat_placeholder_answer)
         ComposerMode.Idle -> if (hasHistory) tr(R.string.chat_placeholder_more) else EMPTY_PROMPT
+    }
+
+    /** 能按住说话时的灰字(前面配一个小话筒):告诉人能按住说、点一下打字;任务在跑时说的就是插话。 */
+    fun voicePlaceholder(mode: ComposerMode): String = when (mode) {
+        ComposerMode.Busy -> tr(R.string.voice_placeholder_busy)
+        ComposerMode.Answer -> tr(R.string.voice_placeholder_answer)
+        ComposerMode.Idle -> tr(R.string.voice_placeholder_idle)
     }
 }

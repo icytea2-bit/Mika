@@ -9,6 +9,7 @@ import com.wangzan101.mika.R
 import com.wangzan101.mika.core.chatgpt.ChatGptAuth
 import com.wangzan101.mika.core.oauth.OpenRouterAuth
 import com.wangzan101.mika.MikaApp
+import com.wangzan101.mika.voice.SystemSpeech
 import com.wangzan101.mika.settings.ChatGptSignIns
 import com.wangzan101.mika.i18n.tr
 import androidx.compose.ui.res.stringResource
@@ -84,12 +85,23 @@ import com.wangzan101.mika.ui.theme.MikaType
  * 选用途、服务商详情、服务商的全部模型是这一页里的子页面。上手时「下一步」选好主模型才可点,点了调 [onDone]。
  */
 @Composable
-fun ModelSetupScreen(store: ProviderStore, onboarding: Boolean, onBack: () -> Unit, onDone: () -> Unit) {
+fun ModelSetupScreen(
+    store: ProviderStore, onboarding: Boolean, onBack: () -> Unit, onDone: () -> Unit,
+    /** 设置里点「语音转文字」卡片去选择页;上手流程不传,卡片就不出现。 */
+    onOpenSpeech: (() -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val vm = remember {
         val signIns = (context.applicationContext as? MikaApp)?.chatGptSignIn ?: ChatGptSignIns(scope)
-        ModelSetupViewModel(store, scope, browser = AndroidSignInBrowser(context.applicationContext), signIns = signIns)
+        ModelSetupViewModel(
+            store, scope, browser = AndroidSignInBrowser(context.applicationContext), signIns = signIns,
+            speech = (context.applicationContext as? MikaApp)?.speech,
+            systemSpeech = {
+                val silent = (context.applicationContext as? MikaApp)?.speech?.systemSilent?.value ?: false
+                SystemSpeech.capability(context.applicationContext, silent)
+            },
+        )
     }
     val ui by vm.state.collectAsState()
     var picking by rememberSaveable { mutableStateOf<ModelRole?>(null) }
@@ -173,9 +185,9 @@ fun ModelSetupScreen(store: ProviderStore, onboarding: Boolean, onBack: () -> Un
                 ui, onboarding,
                 ModelSetupActions(
                     selectPreset = vm::selectPreset, setKind = vm::setKind, setBaseUrl = vm::setBaseUrl, setApiKey = vm::setApiKey,
-                    setModel = vm::setModel, setName = vm::setName,
+                    setModel = vm::setModel, setManual = vm::setManual, setName = vm::setName,
                     testAndSave = vm::testAndSave, openForm = vm::openForm, closeForm = vm::closeForm,
-                    openProvider = { openProvider = it; allModels = false }, pickRole = { picking = it }, next = onDone,
+                    openProvider = { openProvider = it; allModels = false }, pickRole = { picking = it }, next = onDone, openSpeech = onOpenSpeech,
                     openSignIn = { signInSheet = it },
                     setReasoningEffort = vm::setReasoningEffort,
                 ),
@@ -214,12 +226,16 @@ class ModelSetupActions(
     val setBaseUrl: (String) -> Unit = {},
     val setApiKey: (String) -> Unit = {},
     val setModel: (String) -> Unit = {},
+    /** 「手动填写模型名」的开和收。 */
+    val setManual: (Boolean) -> Unit = {},
     val setName: (String) -> Unit = {},
     val testAndSave: () -> Unit = {},
     val openForm: () -> Unit = {},
     val closeForm: () -> Unit = {},
     val openProvider: (String) -> Unit = {},
     val pickRole: (ModelRole) -> Unit = {},
+    /** 打开「语音转文字」的选择页;为 null 时不显示这张卡(上手流程)。 */
+    val openSpeech: (() -> Unit)? = null,
     val next: () -> Unit = {},
     /** 打开一家账号登录的说明面板。 */
     val openSignIn: (SignInKind) -> Unit = {},
@@ -248,10 +264,10 @@ fun ModelSetupContent(ui: ModelSetupUi, onboarding: Boolean, actions: ModelSetup
                 // 上手时先连服务商再选模型;设置里先看用途
                 if (onboarding) {
                     ProvidersSection(ui, actions)
-                    RolesSection(ui, onPick, actions.setReasoningEffort)
+                    RolesSection(ui, onPick, actions.setReasoningEffort, null)
                     FooterNote(ModelSetupCopy.ONBOARDING_NOTE)
                 } else {
-                    RolesSection(ui, onPick, actions.setReasoningEffort)
+                    RolesSection(ui, onPick, actions.setReasoningEffort, actions.openSpeech)
                     ProvidersSection(ui, actions)
                 }
                 Spacer(Modifier.height(16.dp))
@@ -361,13 +377,22 @@ private fun AddProviderForm(ui: ModelSetupUi, actions: ModelSetupActions) {
         ) {
             Text(if (showKey) stringResource(R.string.hide) else stringResource(R.string.show), Modifier.clickable { showKey = !showKey }, fontSize = 13.sp, color = c.accent)
         }
-        if (f.noList) {
+        if (f.showModel) {
             InputRow(
                 ModelSetupCopy.MODEL_NAME, f.model, actions.setModel, ModelSetupCopy.modelExample(f.exampleKind),
                 keyboard = KeyboardType.Uri, modifier = Modifier.testTag("setup-model"),
             )
         }
     }
+    // 列表里没有要的模型、或这家不提供列表时,随时可以自己填(没列出模型时那一栏已经在了)
+    if (!f.noList) {
+        Text(
+            if (f.manual) ModelSetupCopy.MANUAL_OFF else ModelSetupCopy.MANUAL_ON,
+            Modifier.padding(start = 16.dp, top = 8.dp).clickable { actions.setManual(!f.manual) }.padding(vertical = 4.dp).testTag("setup-manual-model"),
+            fontSize = 13.sp, color = c.accent,
+        )
+    }
+    if (f.manual && !f.noList) FooterNote(ModelSetupCopy.MANUAL_NOTE, Modifier.testTag("setup-manual-note"))
     f.urlProblem?.takeIf { f.urlEditable && f.baseUrl.isNotBlank() }?.let { FooterNote(it, color = c.bad) }
     f.suggestedPreset?.let { preset -> PresetSuggestion(f, preset.label) { actions.selectPreset(preset.label) } }
     if (f.noList) FooterNote(if (f.isCustom) ModelSetupCopy.NO_LIST_CUSTOM else ModelSetupCopy.NO_LIST_PRESET, Modifier.testTag("setup-no-list"))
@@ -453,7 +478,7 @@ internal object SignInPage {
 
 /** 用途:主模型、看图模型、轻量模型各一张卡,点开是选择页。 */
 @Composable
-private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReasoning: (ModelRole, String?) -> Unit) {
+private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReasoning: (ModelRole, String?) -> Unit, onSpeech: (() -> Unit)?) {
     GroupLabel(ModelsCopy.ROLES)
     GroupCard {
         ModelRole.entries.forEachIndexed { i, role ->
@@ -461,6 +486,10 @@ private fun RolesSection(ui: ModelSetupUi, onPick: (ModelRole) -> Unit, onReason
                 onPick(role)
             }
             ReasoningControl(ui, role) { onReasoning(role, it) }
+        }
+        // 第四个用途:语音转文字(不是对话模型,点开是单独的选择页)
+        if (onSpeech != null) {
+            RoleCard(ModelsCopy.SPEECH_ICON, ModelsCopy.SPEECH_LABEL, ModelsCopy.speechLine(ui), tag = "role-speech", onClick = onSpeech)
         }
     }
 }
@@ -497,6 +526,9 @@ object ModelSetupCopy {
     val MODEL_NAME: String get() = tr(R.string.model_manual_name)
     val NO_LIST_CUSTOM: String get() = tr(R.string.model_no_list_custom)
     val NO_LIST_PRESET: String get() = tr(R.string.model_no_list_preset)
+    val MANUAL_ON: String get() = tr(R.string.model_manual_on)
+    val MANUAL_OFF: String get() = tr(R.string.model_manual_off)
+    val MANUAL_NOTE: String get() = tr(R.string.model_manual_note)
 
     /** 手填模型名时举的例子,按接口类型(各家模型名的样子不同)。 */
     fun modelExample(kind: ProviderConfig.Kind): String = tr(
@@ -525,6 +557,7 @@ object ModelSetupCopy {
     /** 模型的能力标签:(文字, 是否强调色)。接口没给、按预设推断的标「未确认」。只作参考,不拦选择。 */
     fun tags(o: ModelOption, forVision: Boolean = false): List<Pair<String, Boolean>> = buildList {
         val caps = o.capabilities
+        if (o.typed) add(tr(R.string.cap_typed) to false)
         if (forVision) {
             add((if (o.visionKnown) tr(R.string.cap_vision) else tr(R.string.cap_vision_unconfirmed)) to false)
         } else {

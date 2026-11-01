@@ -137,16 +137,7 @@ class OpenAiCompatModel(
         return JsonObject(m + ("content" to JsonArray(withMark)))
     }
 
-    private fun mapError(status: Int, retryAfter: String?, body: String): ModelError = ModelAccessErrors.of(status, body, model) ?: when {
-        status == 401 -> ModelError.Auth()
-        status == 402 || body.contains("insufficient_quota") -> ModelError.QuotaExceeded()
-        status == 429 -> ModelError.RateLimited(HttpSupport.retryAfterMs(retryAfter))
-        status == 400 && (body.contains("context_length") || body.contains("maximum context")) -> ModelError.ContextTooLong()
-        status == 404 -> ModelError.ModelNotFound(model)
-        status in 500..599 -> ModelError.Server(status)
-        status == 403 -> ModelError.Auth()
-        else -> ModelError.BadResponse("HTTP $status ${body.take(200)}")
-    }
+    private fun mapError(status: Int, retryAfter: String?, body: String): ModelError = ModelHttp.openAiError(status, retryAfter, body, model)
 
     private fun toolJson(t: ToolSpec): JsonObject = buildJsonObject {
         put("type", "function")
@@ -324,7 +315,9 @@ class OpenAiCompatModel(
         val inT = int(u, "prompt_tokens") ?: if (hit != null && miss != null) hit + miss else return null
         val outT = int(u, "completion_tokens") ?: 0
         val cached = maxOf(int(u["prompt_tokens_details"] as? JsonObject, "cached_tokens") ?: 0, hit ?: 0).coerceAtMost(inT)
-        return Usage(inT, outT, cached)
+        // completion_tokens 含思考;有的服务商在 completion_tokens_details.reasoning_tokens 里单独报
+        val reasoning = (int(u["completion_tokens_details"] as? JsonObject, "reasoning_tokens") ?: 0).coerceIn(0, outT)
+        return Usage(inT, outT, cached, reasoning)
     }
 }
 
