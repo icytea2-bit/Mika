@@ -1,5 +1,6 @@
 package com.wangzan101.mika.core.agent
 
+import com.wangzan101.mika.core.trace.RunTrace
 import com.wangzan101.mika.core.guard.OperationGuards
 import com.wangzan101.mika.core.guard.GuardVerdict
 import com.wangzan101.mika.core.observation.Place
@@ -18,6 +19,7 @@ import com.wangzan101.mika.core.action.FollowUp
 import com.wangzan101.mika.core.action.Origin
 import com.wangzan101.mika.core.action.Presented
 import com.wangzan101.mika.core.action.Refusals
+import com.wangzan101.mika.core.access.AppAccessDenied
 import com.wangzan101.mika.core.model.Author
 import com.wangzan101.mika.core.gate.ConfirmationGate
 import com.wangzan101.mika.core.knowledge.ChannelAdvisor
@@ -76,13 +78,14 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.ZoneId
 import com.wangzan101.mika.core.userscreen.UserScreenSource
+import com.wangzan101.mika.core.general.HISTORY_READ
 import com.wangzan101.mika.core.general.VIEW_USER_SCREEN
 
 /** 批做完后另看的一眼:内容和画面同一时刻。 */
 private fun batchViewNote(content: String) = Feedback.format("batch_view_note", "screen" to content)
 private val MEMORY_VERBS = setOf(Verb.MemorySearch, Verb.MemorySave)
-/** 讨论历史时仍可查本地记忆与技能资料；这些调用不会打开 App 或网站。 */
-private val DISCUSSION_LOOKUP_VERBS = setOf(Verb.MemorySearch, Verb.KnowledgeSearch, Verb.KnowledgeRead, Verb.SkillSearch, Verb.SkillRead)
+/** 讨论历史时仍可查本地记忆与技能资料、之前几轮的记录；这些调用不会打开 App 或网站。 */
+private val DISCUSSION_LOOKUP_VERBS = setOf(Verb.MemorySearch, Verb.KnowledgeSearch, Verb.KnowledgeRead, Verb.SkillSearch, Verb.SkillRead, Verb.HistoryRead)
 
 /**
  * 驱动“模型 ↔ 工具”的循环,只做调度:问模型([ModelCaller])→ 交执行入口([ActionExecutor])→
@@ -151,6 +154,7 @@ class AgentLoop(
     private val reviewFinalAnswer: Boolean = true,
     /** 同一网站、App 里连着做对外动作(发送、提交)时两次之间的间隔;默认不等。 */
     private val outwardPacing: OutwardPacing = OutwardPacing.Off,
+    private val trace: RunTrace? = null,
 ) {
     init {
         require(maxSteps > 0) { "maxSteps must be positive" }
@@ -159,13 +163,16 @@ class AgentLoop(
     }
 
     /** 运行记录:按因果先后写(见 [RecordOrder])。 */
-    val events = RunEventBus().also { it.subscribe(sink) }
+    val events = RunEventBus().also { bus ->
+        bus.subscribe(sink)
+        trace?.let { bus.subscribe(it) }
+    }
     private val sink = RecordOrder(events).also { order ->
         // 记进证据账本的每条观察原样进运行记录(跟在读到它的那次调用的结果后面)
         tools.observer = { record { order.observed(RunEvent.Observed.of(it)) } }
     }
 
-    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous)
+    private val caller = ModelCaller(model, tools, router, flags, retry, ::emit, ::now, autonomous, trace)
     private val intentGate = intentJudge?.let { IntentGate(it, model.takeUnless { main -> main === it }) }
     private val routeMatcher = routes
     /** 本任务的上下文生成器(外壳、预算、已给过的参考资料)。 */
@@ -390,7 +397,10 @@ class AgentLoop(
         val matched = knowledge?.matchTask(task, Int.MAX_VALUE, installed).orEmpty()
         val index = if (skills != null && recommendSkills) GuideRecommender.index(skills, task) else null
         val start = ctx.start(
-            task, priorTurns = context?.let { (it.parts.single() as Part.Text).text },
+            task, priorTurns = context?.let { (it.parts.single() as Part.Text).text }?.let { prior ->
+                // 之前几轮读到的东西查得到时说一句(只在有记过运行的轮次、提供了 history_read 时)
+                if (tools.definitions().any { it.name == HISTORY_READ }) Feedback.format("history_hint", "turns" to prior) else prior
+            },
             memory = listOfNotNull(ProfileContext.render(profileSnapshot), block?.message).takeIf { it.isNotEmpty() }?.joinToString("\n\n"),
             channel = if (knowledge != null) channelLine(matched) else null,
             knowledge = matched, knowledgeNote = toolsNote(tools.scriptsOffered()), withLinks = flags.deepLinks,
@@ -463,7 +473,7 @@ class AgentLoop(
                     // 提议的调用尚未写进历史、也没有执行；重问一次，只给直接回答的机会。
                     val discussion = history + ctx.notice("conversation_intent",
                         "The user is discussing or reviewing this time. Answer this question directly, without reading or operating apps, websites or other outside content.")
-                    reply = try { caller.ask(discussion, emptyList(), using = model, onText = previewFor(step)) }
+                    reply = try { caller.ask(discussion, emptyList(), step, using = model, onText = previewFor(step)) }
                     catch (e: CancellationException) { throw e }
                     catch (e: Exception) { return StopRules.modelFailed(e) }
                     used = model
@@ -556,6 +566,7 @@ class AgentLoop(
             answered = null
 
             val first = calls.first()
+            trace?.toolStarted(step, first.name, first.id, now())
             val skipped = calls.drop(1).map {
                 Part.ToolResult(it.id, buildJsonObject {
                     put("ok", false)
@@ -639,6 +650,11 @@ class AgentLoop(
                     guards.stop?.let {
                         recordReply(Redactor.args(tools.verb(first.name), first.argsJson, secretField = true))
                         return StopRules.guard(it)
+                    }
+                    // 应用权限拒绝已经由执行入口作为工具结果交给模型:不结束任务,让模型换路线或向用户说明
+                    if (AppAccessDenied.isAppAccessCode(action.code)) {
+                        track.after(tools.verb(first.name), ok = false, guard = false, changed = null, recovery = false, app = null)
+                        continue
                     }
                     // 模型单步只会被守卫叫停、被确认关卡拦下或因作用在 Mika 自己身上不做;别的拒绝说明执行入口和这里对不上
                     check(action.hit != null || action.code == Refusals.OWN_APP) { "unexpected refusal ${action.code} for ${first.name}" }
@@ -928,7 +944,7 @@ class AgentLoop(
             _state.value = TaskState.Running(step, "")
             val asked = now()
             val reply = try {
-                caller.ask(history, TurnPolicy.finalTools(specs, tools::verb), onText = previewFor(step))
+                caller.ask(history, TurnPolicy.finalTools(specs, tools::verb), step, onText = previewFor(step))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

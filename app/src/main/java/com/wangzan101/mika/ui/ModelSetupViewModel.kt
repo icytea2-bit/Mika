@@ -3,13 +3,14 @@ package com.wangzan101.mika.ui
 import com.wangzan101.mika.R
 import com.wangzan101.mika.i18n.tr
 import com.wangzan101.mika.core.model.ListFailure
+import com.wangzan101.mika.core.net.ProxyFailure
 import com.wangzan101.mika.core.model.Capabilities
 import com.wangzan101.mika.core.model.ListedModel
 import com.wangzan101.mika.core.model.ModelEndpoint
 import com.wangzan101.mika.core.model.ModelError
 import com.wangzan101.mika.core.model.ModelListResult
 import com.wangzan101.mika.core.model.ModelRole
-import com.wangzan101.mika.settings.LocalHosts
+import com.wangzan101.mika.core.net.LocalHosts
 import com.wangzan101.mika.settings.ModelOption
 import com.wangzan101.mika.settings.ModelOptions
 import com.wangzan101.mika.settings.Provider
@@ -151,6 +152,9 @@ data class AddForm(
     val canTest: Boolean get() =
         urlProblem == null && (!keyRequired || apiKey.isNotBlank()) && test != ListState.Running && (!noList || model.isNotBlank())
 
+    /** 不测试也能存:地址格式对、该有 Key 的有 Key。和 [canTest] 不同,不看测试进度,也不要求填模型名。 */
+    val canSaveUntested: Boolean get() = urlProblem == null && (!keyRequired || apiKey.isNotBlank()) && test != ListState.Running
+
     /** 自定义填的是某家服务商的官方地址(主机名对得上,见 [ProviderPresets.forHost]):建议改用那个预设。 */
     val suggestedPreset: ProviderPreset? get() = if (isCustom && urlProblem == null) ProviderPresets.forHost(baseUrl) else null
 
@@ -212,12 +216,14 @@ data class ModelSetupUi(
     /** 刚用账号登录成功的服务商 id:界面打开它的详情页(看账号和模型、设主模型),打开后清掉。 */
     val signedInProvider: String? = null,
     /**
-     * 刚存下服务商时试调用的说明(见 [ModelSetupViewModel.testAndSave]):先试的模型没通过、主模型用了哪个,
-     * 或一个都没通过、要用户自己选;再测试、选了主模型时清掉。
+     * 刚存下服务商时的说明:试调用先试的模型没通过、主模型用了哪个,或一个都没通过、要用户自己选
+     * (见 [ModelSetupViewModel.testAndSave]);或这家是跳过测试存下的(见 [ModelSetupViewModel.saveWithoutTest])。
+     * 再测试、选了主模型时清掉。
      */
     val probeNote: String? = null,
     /**
-     * 刚存下、试调用的模型一个都没通过的服务商 id:在它里面选主模型时先试调用(见 [probeBeforePick]);选好了清掉。
+     * 刚存下、还没有哪个模型试通过过的服务商 id:在它里面选主模型时先试调用(见 [probeBeforePick]);选好了清掉。
+     * 两个来源:试调用的模型一个都没通过,或用户跳过测试直接存下。
      */
     val pickToProbe: String? = null,
     /** 选择页里手填模型名后试调用的进度(按服务商 id)。 */
@@ -233,8 +239,12 @@ data class ModelSetupUi(
     /** 还没有服务商时表单总是展开。 */
     val showForm: Boolean get() = formOpen || providers.isEmpty()
 
-    /** 在 [providerId] 里选 [role] 要先试调用(走 [ModelSetupViewModel.pickManual]):刚存下、没有一个模型试通过的那家选主模型。 */
-    fun probeBeforePick(role: ModelRole, providerId: String): Boolean = role == ModelRole.Main && providerId == pickToProbe
+    /**
+     * 在 [providerId] 里选 [role] 要先试调用(走 [ModelSetupViewModel.pickManual]):刚存下、没有一个模型试通过的那家,
+     * 或跳过测试存下、还没测过的那家([Provider.savedUntested],重开 App 后也算)选主模型。
+     */
+    fun probeBeforePick(role: ModelRole, providerId: String): Boolean = role == ModelRole.Main &&
+        (providerId == pickToProbe || providers.firstOrNull { it.id == providerId }?.savedUntested == true)
 
     /** 选好了主模型就能「下一步」。 */
     val canNext: Boolean get() = roles.main != null
@@ -262,9 +272,15 @@ data class ModelSetupUi(
      * 有列表的服务商,模型是从列表里选的,不算。
      */
     fun unverified(p: Provider): List<String> =
-        if (p.kind == ProviderConfig.Kind.ChatGpt || p.kind == ProviderConfig.Kind.Xai || p.models?.isEmpty() != true) emptyList()
-        else roles.referenced.mapNotNull { id -> configs.firstOrNull { it.id == id && it.providerId == p.id }?.model }
-            .distinct().filter { it !in p.verifiedModels }
+        roles.referenced.mapNotNull { id -> configs.firstOrNull { it.id == id && it.providerId == p.id }?.model }
+            .distinct().filter(p::untested)
+
+    /**
+     * 这家是跳过测试直接存下的(见 [ModelSetupViewModel.saveWithoutTest]):既没列过模型、也没有一个模型试通过过。
+     * 服务商页据此说「还没测过」,而不是笼统的「不提供模型列表」——后者对它是错的。
+     * 之后列过一次模型、或试通过一次就不算(见 [ProviderStore.rememberModels]、[ProviderStore.markVerified])。
+     */
+    fun untested(p: Provider): Boolean = p.savedUntested
 
     /** 用账号登录的这一家已经退出了登录(ChatGPT、xAI 的令牌清了,OpenRouter 的 Key 删了)。 */
     fun signedOut(p: Provider): Boolean = when {
@@ -513,6 +529,42 @@ class ModelSetupViewModel(
     }
 
     /**
+     * 不测试,直接保存:只按填的接口类型、地址和 Key 存下这家服务商,不列模型、不试调用(见 [AddForm.canSaveUntested])。
+     * 存下的这家带着 [Provider.savedUntested]:服务商页会说清它还没测过,并留着「重新测试」;
+     * 没有定主模型时还设 [ModelSetupUi.pickToProbe],之后从列表里选主模型会先试调用一次(见 [ModelSetupUi.probeBeforePick])。
+     *
+     * 手填了模型名([AddForm.typedModel])时,只把它记为手填——列表里没有它、或这家列不出模型,刷新列表也不会丢。
+     * 没测过的模型不自动当主模型:没有主模型时用户去选,选的时候先试调用,通了才用。
+     *
+     * 列表参数给的是空列表(「列过但一个也没有」)而不是 null:这样「没列出模型」这件事和 [Provider.savedUntested]
+     * 一起把两种情形分清楚了——真的没有列表,还是这次没去列。旧的 [testAndSave] 一行都不动。
+     */
+    fun saveWithoutTest() {
+        val f = _state.value.form
+        if (!f.canSaveUntested) return
+        testJob?.cancel()
+        _state.update { it.copy(form = it.form.copy(test = ListState.Running), probeNote = null, pickToProbe = null) }
+        testJob = scope.launch {
+            val key = f.apiKey.trim()
+            val baseUrl = f.baseUrl.trim()
+            val typed = f.typedModel
+            val saved = withContext(io) {
+                store.connect(
+                    f.providerName, f.kind, baseUrl, key.ifEmpty { null }, emptyList(), f.sessionHeader, untested = true,
+                ).also { p -> if (typed.isNotEmpty()) store.markTyped(p.id, typed) }
+            }
+            _state.update {
+                snapshot(it.copy(
+                    form = AddForm.of(ProviderPresets.all.first()), formOpen = false,
+                    probeNote = tr(R.string.model_saved_untested, f.providerName),
+                    // 没有主模型时,在它里面选主模型会先试调用
+                    pickToProbe = saved.id.takeIf { store.roles.value.main == null },
+                ))
+            }
+        }
+    }
+
+    /**
      * 试调用的结论:通过、[model] 没调用工具、失败([message] 是给人看的原因)。
      * 失败是那个模型自己的问题(这个账号用不了、没有这个模型、不支持工具)时 [modelReason] 是短的原因,换一个模型可能就行;
      * [notAvailable] 为真是没开通或没权限;[serverSide] 为真是服务端出错(5xx),可能只是这一个模型的上游挂了,见 [probe]。
@@ -656,6 +708,8 @@ class ModelSetupViewModel(
                     tr(R.string.model_probe_failed, model, e.message.orEmpty()),
                     tr(R.string.model_reason_server, "HTTP ${e.status}"), serverSide = true,
                 )
+                // 代理那一段的问题:说是代理,不说成模型或服务商不行
+                is ModelError.Proxy -> ProbeOutcome.Failed(tr(R.string.model_probe_failed, model, proxyReason(e)))
                 else -> ProbeOutcome.Failed(tr(R.string.model_probe_failed, model, e.message.orEmpty()))
             }
         }
@@ -845,6 +899,11 @@ class ModelSetupViewModel(
         return saved
     }
 
+    fun setModelVision(providerId: String, model: String, sees: Boolean) {
+        store.setModelVision(providerId, model, sees)
+        sync()
+    }
+
     /** 把 [providerId] 下的 [model] 用作 [role](选择页和「用作」面板都走这里):没有配置的当场建一条。 */
     fun pick(role: ModelRole, providerId: String, model: String) {
         val m = model.trim()
@@ -950,8 +1009,13 @@ class ModelSetupViewModel(
     private fun speechFailure(model: String, p: Provider, e: ModelError): String = when (e) {
         is ModelError.ModelNotAvailable -> tr(R.string.model_probe_not_available, model, e.detail.ifEmpty { e.message.orEmpty() })
         is ModelError.ModelNotFound -> tr(R.string.model_probe_not_found, model, ModelSetupCopy.modelExample(ProviderPresets.forHost(p.baseUrl)?.kind ?: p.kind))
+        is ModelError.Proxy -> tr(R.string.speech_pick_failed, proxyReason(e))
         else -> tr(R.string.speech_pick_failed, e.message.orEmpty())
     }
+
+    private fun proxyReason(e: ModelError.Proxy): String = tr(
+        if (e.failure == ProxyFailure.AuthFailed) R.string.net_proxy_auth_failed else R.string.net_proxy_unreachable,
+    )
 
     /** 选择页打开时,上次试转的结果作废。 */
     fun clearSpeechProbe() { _speechProbe.value = emptyMap() }
